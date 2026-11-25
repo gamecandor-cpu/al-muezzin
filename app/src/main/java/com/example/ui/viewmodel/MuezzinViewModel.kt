@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.content.Intent
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -143,7 +144,10 @@ data class MuezzinUiState(
     val cloudSyncBusy: Boolean = false,
     val cloudSyncStatusAr: String? = null,
     val lastCloudSyncMillis: Long? = null,
-    val broadcastReminders: List<BroadcastReminder> = emptyList()
+    val broadcastReminders: List<BroadcastReminder> = emptyList(),
+    val isPortalConnected: Boolean = false,
+    val lastPortalSyncMillis: Long? = null,
+    val isRefreshingPortal: Boolean = false
 ) {
     val isRamadanActive: Boolean
         get() = ramadanSettings.ramadanTabEnabled || (ramadanSettings.ramadanAutoInMonth && isRamadanMonth)
@@ -209,37 +213,103 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
     private fun observeBroadcastReminders() {
         viewModelScope.launch {
             cloudSyncRepo.observeActiveBroadcastReminders().collect { reminders ->
-                val now = System.currentTimeMillis()
-                val activeList = reminders.filter { it.isActive && it.isNotExpired(now) }
-                _uiState.update { it.copy(broadcastReminders = activeList) }
-                notificationScheduler.syncRemoteReminders(activeList)
+                applyBroadcastRemindersSnapshot(reminders)
+            }
+        }
+    }
 
-                activeList.forEach { reminder ->
-                    val shouldTriggerNow = reminder.deliveryMode == "now" || reminder.triggerNonce > 1L
-                    if (shouldTriggerNow &&
-                        notificationScheduler.markRemoteTriggerHandledIfNew(reminder.id, reminder.triggerNonce)
-                    ) {
-                        val msgBody = reminder.body.ifBlank { reminder.title }
-                        if (reminder.isAudio) {
-                            MorningEveningAthkarService.startRemote(
-                                context = appContext,
-                                title = reminder.title,
-                                body = msgBody,
-                                audioUrl = reminder.effectiveAudioUrl.orEmpty(),
-                                remoteId = reminder.id
-                            )
-                        }
-                        if (_uiState.value.hasNotificationPermission) {
-                            PrayerNotificationReceiver.showCloudPushNotification(
-                                context = appContext,
-                                title = reminder.title,
-                                body = msgBody
-                            )
-                        }
-                        _events.tryEmit(reminder.title)
-                    }
+    private fun applyBroadcastRemindersSnapshot(reminders: List<BroadcastReminder>) {
+        val now = System.currentTimeMillis()
+        val activeList = reminders.filter { it.isActive && it.isNotExpired(now) }
+        val hasNotifPerm = PrayerNotificationReceiver.hasNotificationPermission(appContext)
+        _uiState.update {
+            it.copy(
+                broadcastReminders = activeList,
+                hasNotificationPermission = hasNotifPerm,
+                isPortalConnected = true,
+                lastPortalSyncMillis = now
+            )
+        }
+        notificationScheduler.syncRemoteReminders(activeList)
+
+        val newlyTriggered = mutableListOf<BroadcastReminder>()
+        activeList.forEach { reminder ->
+            val shouldTriggerNow = reminder.deliveryMode == "now" || reminder.triggerNonce > 1L
+            if (shouldTriggerNow &&
+                notificationScheduler.markRemoteTriggerHandledIfNew(reminder.id, reminder.triggerNonce)
+            ) {
+                newlyTriggered.add(reminder)
+                val msgBody = reminder.body.ifBlank { reminder.title }
+                if (hasNotifPerm) {
+                    PrayerNotificationReceiver.showCloudPushNotification(
+                        context = appContext,
+                        title = reminder.title,
+                        body = msgBody,
+                        reminderId = reminder.id,
+                        audioUrl = reminder.effectiveAudioUrl
+                    )
                 }
             }
+        }
+
+        val latestAudio = newlyTriggered
+            .filter { it.isAudio }
+            .maxByOrNull { it.updatedAt?.toDate()?.time ?: 0L }
+        if (latestAudio != null) {
+            MorningEveningAthkarService.startRemote(
+                context = appContext,
+                title = latestAudio.title,
+                body = latestAudio.body.ifBlank { latestAudio.title },
+                audioUrl = latestAudio.effectiveAudioUrl.orEmpty(),
+                remoteId = latestAudio.id
+            )
+        }
+
+        newlyTriggered.maxByOrNull { it.updatedAt?.toDate()?.time ?: 0L }?.let { newest ->
+            _events.tryEmit(newest.title)
+        }
+    }
+
+    fun refreshPortalSync() {
+        if (_uiState.value.isRefreshingPortal) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRefreshingPortal = true) }
+            val token = CloudSyncRepository.initializeFcmAndSubscribe(appContext)
+            if (!token.isNullOrBlank()) {
+                _uiState.update { it.copy(fcmToken = token) }
+            }
+            val result = cloudSyncRepo.fetchActiveBroadcastRemindersOnce()
+            result.onSuccess { reminders ->
+                applyBroadcastRemindersSnapshot(reminders)
+                _uiState.update { it.copy(isRefreshingPortal = false) }
+                _events.tryEmit("تمت المزامنة مع موقع الإدارة (${reminders.size})")
+            }.onFailure {
+                _uiState.update { it.copy(isRefreshingPortal = false, isPortalConnected = false) }
+                _events.tryEmit("تعذر الاتصال بموقع الإدارة حالياً")
+            }
+        }
+    }
+
+    fun handleLaunchIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.action == PrayerNotificationReceiver.ACTION_OPEN_REMOTE_REMINDER) {
+            val title = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_TITLE).orEmpty()
+            val body = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_BODY).orEmpty()
+            val audioUrl = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_URL).orEmpty()
+            val reminderId = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_ID)
+            if (title.isNotBlank()) {
+                _events.tryEmit(title)
+            }
+            if (audioUrl.isNotBlank() && !MorningEveningAthkarService.playbackState.value.isPlaying) {
+                MorningEveningAthkarService.startRemote(
+                    context = appContext,
+                    title = title.ifBlank { "تذكير من موقع الإدارة" },
+                    body = body.ifBlank { title },
+                    audioUrl = audioUrl,
+                    remoteId = reminderId
+                )
+            }
+            intent.action = Intent.ACTION_MAIN
         }
     }
 

@@ -625,6 +625,25 @@
 
     <div id="domainHelpBanner" class="domain-help hidden"></div>
 
+    <section class="card" id="apkLinkCard" style="padding: 14px 18px; display: flex; flex-wrap: wrap; align-items: center; justify-content:space-between; gap: 12px; border-color: rgba(245, 185, 66, 0.45);">
+      <div style="display: grid; gap: 4px;">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+          <strong style="color: var(--amber-gold); font-size: 0.98rem;">📱 الربط الفعلي مع ملف APK (المؤذن)</strong>
+          <span id="apkLinkBadge" class="badge green">✓ متصل بقاعدة التطبيق</span>
+          <span class="badge" dir="ltr">com.aistudio.almuezzin.qrwkpm</span>
+        </div>
+        <div id="apkLinkMeta" style="font-size: 0.78rem; color: var(--silver-text);">
+          Firebase: <code dir="ltr" style="color: var(--ice-white);">gen-lang-client-0269726559</code> • Firestore + FCM (<code dir="ltr" style="color: var(--warm-highlight);">broadcast_reminders</code>) — أي صوت أو تذكير يتم دفعه هنا يصل للتطبيق فوراً.
+        </div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+        <a id="downloadApkBtn" href="/download/al-muezzin.apk" download="al-muezzin.apk" class="btn btn-gold btn-sm hidden" style="text-decoration: none;">
+          ⬇️ تحميل التطبيق (APK)
+        </a>
+        <span id="apkBuildInfoPill" class="status-pill" style="font-size: 0.76rem;">جاري فحص ملف APK...</span>
+      </div>
+    </section>
+
     <section class="stats-row" aria-label="إحصائيات التذكيرات">
       <div class="stat-box">
         <span class="stat-label">إجمالي التذكيرات</span>
@@ -678,15 +697,15 @@
             <textarea id="bodyInput" maxlength="1000" placeholder="اكتب نص الذكر أو الرسالة للمستخدمين..."></textarea>
           </div>
 
-          <!-- Webpage Audio Search + Direct URL Recognition + Built-in Player -->
+          <!-- Direct Audio Link + Webpage Audio Extraction + Built-in Player -->
           <div id="audioSection" class="form-group">
-            <label for="audioUrlInput">رابط صفحة الموقع أو رابط الصوت المباشر (أي موقع يحتوي صوتاً، Archive.org، Google Drive، Dropbox، MP3)</label>
+            <label for="audioUrlInput">رابط الصوت المباشر أو رابط موقع يحتوي على صوت (MP3 / M4A / بث مباشر / Drive / Dropbox / صفحة ويب)</label>
             <div class="form-actions-row">
-              <input id="audioUrlInput" type="url" dir="ltr" placeholder="https://example.com/page-with-audio أو https://.../sound.mp3" />
-              <button id="scanSiteBtn" type="button" class="btn btn-gold btn-sm" style="white-space: nowrap;">🔍 بحث عن الصوت</button>
+              <input id="audioUrlInput" type="url" dir="ltr" placeholder="الصق رابط ملف صوت مباشر أو رابط صفحة تحتوي صوتاً (https://...)" />
+              <button id="scanSiteBtn" type="button" class="btn btn-gold btn-sm" style="white-space: nowrap;">🔍 التعرف على الصوت</button>
             </div>
             <small id="scanStatusText" style="display:block; margin-top:6px; color: var(--silver-text); font-size: 0.76rem;">
-              الصق رابط صفحة ويب أو ملف صوت مباشر، وسيجري الموقع فحصاً فعلياً (نوع المحتوى + بصمة الملف) للتأكد من أنه صوت حقيقي قابل للتشغيل، ثم يستخرجه للتشغيل والدفع للمستخدمين.
+              عند لصق رابط صوت مباشر (حتى لو لم ينتهِ بـ .mp3) أو رابط صفحة موقع فيها صوت، سيتعرف الموقع عليه تلقائياً ويعرضه للتشغيل قبل دفعه للتطبيق.
             </small>
 
             <div id="discoveredTracksBox" class="track-results-box hidden"></div>
@@ -891,8 +910,55 @@
       resolvedAudio: null,
       discoveredTracks: [],
       selectedPlayableUrl: "",
-      dailyTimes: []
+      dailyTimes: [],
+      hasServerApi: false,
+      autoAnalyzeTimer: null
     };
+
+    const apkLinkBadge = document.getElementById("apkLinkBadge");
+    const apkLinkMeta = document.getElementById("apkLinkMeta");
+    const downloadApkBtn = document.getElementById("downloadApkBtn");
+    const apkBuildInfoPill = document.getElementById("apkBuildInfoPill");
+
+    async function initServerAndApkLink() {
+      if (window.location.protocol === "file:") {
+        if (apkBuildInfoPill) apkBuildInfoPill.textContent = "ملف محلي — شغّل الخادم لربط تحميل APK";
+        return;
+      }
+      try {
+        const res = await fetch("/api/apk-info", { cache: "no-store" });
+        if (!res.ok) {
+          if (apkBuildInfoPill) apkBuildInfoPill.textContent = "الاستضافة السحابية • متصل بقاعدة APK";
+          return;
+        }
+        const info = await res.json();
+        state.hasServerApi = true;
+        if (apkLinkMeta && info.applicationId && info.firebaseProjectId) {
+          apkLinkMeta.innerHTML =
+            `Firebase: <code dir="ltr" style="color: var(--ice-white);">${escapeHtml(info.firebaseProjectId)}</code> • ` +
+            `قاعدة البيانات: <code dir="ltr" style="color: var(--warm-highlight);">${escapeHtml(info.collection || "broadcast_reminders")}</code> ` +
+            `• FCM Topics: <code dir="ltr">${escapeHtml((info.fcmTopics || []).join(", "))}</code>`;
+        }
+        if (info.available && info.downloadUrl) {
+          if (downloadApkBtn) {
+            downloadApkBtn.href = info.downloadUrl;
+            downloadApkBtn.classList.remove("hidden");
+          }
+          if (apkLinkBadge) apkLinkBadge.textContent = "✓ ملف APK مبني ومربوط مباشرة";
+          const builtTime = info.updatedAtIso ? new Date(info.updatedAtIso).toLocaleString("ar-EG") : "";
+          if (apkBuildInfoPill) {
+            apkBuildInfoPill.classList.add("live");
+            apkBuildInfoPill.innerHTML = `<span class="dot"></span><span>APK جاهز (${escapeHtml(info.sizeMb)} MB${builtTime ? ` • ${escapeHtml(builtTime)}` : ""})</span>`;
+          }
+        } else {
+          if (apkLinkBadge) apkLinkBadge.textContent = "✓ متصل بقاعدة البيانات (APK بانتظار البناء)";
+          if (apkBuildInfoPill) apkBuildInfoPill.textContent = "خادم الإدارة متصل • لم يُبنَ ملف APK بعد";
+        }
+      } catch {
+        if (apkBuildInfoPill) apkBuildInfoPill.textContent = "وضع الاستضافة السحابية • متصل بقاعدة APK عبر Firestore";
+      }
+    }
+    const serverCheckPromise = initServerAndApkLink();
 
     function showToast(msg) {
       toastEl.textContent = msg;
@@ -1036,6 +1102,63 @@
       (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`
     ];
 
+    async function readFirstChunk(res, maxBytes = 8192) {
+      if (!res.body || typeof res.body.getReader !== "function") {
+        return new Uint8Array(0);
+      }
+      const reader = res.body.getReader();
+      const chunks = [];
+      let total = 0;
+      try {
+        while (total < maxBytes) {
+          const { value, done } = await reader.read();
+          if (done || !value) break;
+          chunks.push(value);
+          total += value.length;
+          if (total >= 2048) break;
+        }
+      } catch {
+        // Ignore stream cancellation error
+      } finally {
+        reader.cancel().catch(() => {});
+      }
+      const merged = new Uint8Array(Math.min(total, maxBytes));
+      let offset = 0;
+      for (const c of chunks) {
+        const sliceLen = Math.min(c.length, merged.length - offset);
+        if (sliceLen <= 0) break;
+        merged.set(c.subarray(0, sliceLen), offset);
+        offset += sliceLen;
+      }
+      return merged;
+    }
+
+    function probeHtmlAudioMetadata(url, timeoutMs = 7000) {
+      return new Promise((resolve) => {
+        const audio = new Audio();
+        let settled = false;
+        const finish = (ok, detail = "") => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          audio.removeAttribute("src");
+          try { audio.load(); } catch {}
+          resolve({ ok, detail });
+        };
+        const timer = setTimeout(() => finish(false, "انتهت مهلة تحميل بيانات الصوت"), timeoutMs);
+        audio.preload = "metadata";
+        audio.onloadedmetadata = () => {
+          const dur = Number.isFinite(audio.duration) && audio.duration > 0
+            ? ` (المدة: ${Math.round(audio.duration)} ث)`
+            : "";
+          finish(true, `تم التحقق عبر مشغل الصوت مباشرة${dur}`);
+        };
+        audio.oncanplay = () => finish(true, "تم التحقق عبر مشغل الصوت مباشرة");
+        audio.onerror = () => finish(false, "تعذر تشغيل الرابط مباشرة في المشغل");
+        audio.src = url;
+      });
+    }
+
     async function fetchHeadInfo(rawUrl, timeoutMs = 8000) {
       const attempts = [rawUrl, ...AUDIO_VERIFY_PROXIES.map((p) => p(rawUrl))];
       for (const attempt of attempts) {
@@ -1045,7 +1168,7 @@
           let res;
           try {
             res = await fetch(attempt, {
-              method: attempt === rawUrl ? "HEAD" : "GET",
+              method: "GET",
               headers: attempt === rawUrl ? { Range: "bytes=0-4095" } : {},
               signal: ctrl.signal,
               redirect: "follow"
@@ -1055,26 +1178,18 @@
           }
           if (!res.ok && res.status !== 206) continue;
           const contentType = res.headers.get("content-type") || "";
-          let bytes = new Uint8Array(0);
-          if (attempt !== rawUrl || !/HEAD/i.test(res.headers.get("allow") || "")) {
-            try {
-              const buf = await res.arrayBuffer();
-              bytes = new Uint8Array(buf.slice(0, 4096));
-            } catch {
-              /* بعض الروابط ترفض القراءة؛ نعتمد على الترويسة فقط */
-            }
-          }
+          const bytes = await readFirstChunk(res, 8192);
           return { contentType, bytes, finalUrl: res.url || attempt, ok: true };
         } catch {
-          // جرّب المحاولة التالية
+          // Try next proxy
         }
       }
       return { contentType: "", bytes: new Uint8Array(0), finalUrl: rawUrl, ok: false };
     }
 
     /**
-     * تحقق فعلي أن الرابط يقدّم صوتاً:
-     * @returns {{ ok: boolean, kindLabel: string, detail: string, cloud: boolean }}
+     * تحقق فعلي أن الرابط يقدّم صوتاً (عبر الخادم أولاً، ثم فحص المتصفح ومشغل HTML5 Audio)
+     * @returns {{ ok: boolean, kindLabel: string, detail: string, cloud: boolean, finalUrl?: string }}
      */
     async function verifyAudioUrl(rawUrl) {
       const url = (rawUrl || "").trim();
@@ -1096,7 +1211,41 @@
           cloud: false
         };
       }
+
       const isCloud = host.includes("drive.google.com") || host.includes("docs.google.com") || host.includes("dropbox.com");
+
+      await serverCheckPromise;
+
+      // Prefer Node backend analyzer when available (CORS-free, follows redirects, peeks first 8KB only)
+      if (state.hasServerApi) {
+        try {
+          const res = await fetch(`/api/analyze-url?url=${encodeURIComponent(url)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.ok && data.mode === "direct_audio" && Array.isArray(data.tracks) && data.tracks[0]?.verified) {
+              const t = data.tracks[0];
+              return {
+                ok: true,
+                kindLabel: t.formatLabel || "ملف صوتي",
+                detail: t.verifyNote || "تم التأكد من الصوت عبر الخادم",
+                cloud: isCloud,
+                finalUrl: t.url || url
+              };
+            }
+            if (data.ok && data.mode === "webpage") {
+              return {
+                ok: false,
+                kindLabel: "",
+                detail: "هذا رابط صفحة موقع وليس ملف صوت مباشر — اضغط «التعرف على الصوت» لاستخراج الأصوات من الصفحة",
+                cloud: false
+              };
+            }
+          }
+        } catch {
+          // Fall back to browser verification
+        }
+      }
+
       const info = await fetchHeadInfo(url);
       const magic = sniffAudioKind(info.bytes);
       const mimeAudio = contentTypeLooksAudio(info.contentType);
@@ -1110,8 +1259,7 @@
           cloud: isCloud
         };
       }
-      if (isCloud && info.ok) {
-        // روابط السحابة تعيد صفحة واجهة أحياناً؛ نثق بها مع تنبيه المشاركة العامة
+      if (isCloud && (info.ok || !info.contentType)) {
         return {
           ok: true,
           kindLabel: host.includes("drive.google.com") ? "Google Drive صوت" : "Dropbox صوت",
@@ -1122,10 +1270,22 @@
       if (extMatch && info.ok && info.contentType && !/text\/html|text\/plain|application\/json/i.test(info.contentType)) {
         return { ok: true, kindLabel: AUDIO_EXT_MAP["." + extMatch[1]] || "ملف صوتي", detail: "امتداد صوتي معروف", cloud: false };
       }
+
+      // CORS-immune browser <audio> metadata check (catches direct audio links without .mp3 or without CORS)
+      const mediaProbe = await probeHtmlAudioMetadata(url, 6500);
+      if (mediaProbe.ok) {
+        return {
+          ok: true,
+          kindLabel: extMatch ? (AUDIO_EXT_MAP["." + extMatch[1]] || "ملف صوتي") : "ملف صوتي مباشر",
+          detail: mediaProbe.detail,
+          cloud: isCloud
+        };
+      }
+
       return {
         ok: false,
         kindLabel: "",
-        detail: "الرابط لا يقدّم ملفاً صوتياً فعلياً (تم فحص نوع المحتوى والبصمة الأولى للملف)",
+        detail: "الرابط لا يقدّم ملفاً صوتياً فعلياً أو محمي بـ CORS",
         cloud: false
       };
     }
@@ -1195,9 +1355,24 @@
       };
     }
 
+    function previewSrcForUrl(cleanHttpsUrl) {
+      if (!cleanHttpsUrl) return "";
+      if (state.hasServerApi) {
+        return `/api/audio-proxy?url=${encodeURIComponent(cleanHttpsUrl)}`;
+      }
+      return cleanHttpsUrl;
+    }
+
+    function toHttpsPreferred(rawUrl) {
+      if (!rawUrl) return "";
+      const s = rawUrl.trim();
+      return s.startsWith("http://") ? "https://" + s.slice(7) : s;
+    }
+
     function applySelectedAudio(playableUrl, label = "ملف صوت مكتشف", suggestedTitle = "", verified = false) {
-      state.selectedPlayableUrl = playableUrl;
-      const resolved = resolveAudioUrl(playableUrl);
+      const safePlayable = toHttpsPreferred(playableUrl);
+      state.selectedPlayableUrl = safePlayable;
+      const resolved = resolveAudioUrl(safePlayable);
       state.resolvedAudio = {
         ...resolved,
         sourceTypeLabel: label || resolved.sourceTypeLabel,
@@ -1210,7 +1385,10 @@
         : `⚠️ محتمل: ${label || resolved.sourceTypeLabel}`;
       detectedTypeBadge.className = verified ? "badge verified" : "badge warn";
       normalizedUrlPreview.textContent = resolved.directPlayUrl;
-      adminAudioPlayer.src = resolved.directPlayUrl;
+      adminAudioPlayer.dataset.directUrl = resolved.directPlayUrl;
+      adminAudioPlayer.dataset.usingProxy = state.hasServerApi ? "1" : "0";
+      adminAudioPlayer.dataset.fallbackTried = "0";
+      adminAudioPlayer.src = previewSrcForUrl(resolved.directPlayUrl);
       if (suggestedTitle && !titleInput.value.trim()) {
         titleInput.value = suggestedTitle.slice(0, 140);
       }
@@ -1394,65 +1572,88 @@
         .sort((a, b) => Number(b.verified) - Number(a.verified));
     }
 
-    async function searchAudioInWebpage(pageUrl) {
+    async function searchAudioInWebpage(pageUrl, { silentIfFail = false } = {}) {
       const trimmed = (pageUrl || "").trim();
       if (!/^https?:\/\//i.test(trimmed)) {
-        showToast("أدخل رابط موقع يبدأ بـ https:// أو http://");
+        if (!silentIfFail) showToast("أدخل رابط صوت أو موقع يبدأ بـ https:// أو http://");
         return;
       }
 
-      // منصات المشغّلات الخاصة: لا تقدّم رابط ملف صوتي مباشر
       const blocked = matchBlockedHost(trimmed);
       if (blocked) {
         scanStatusText.textContent =
-          `⚠️ منصة ${blocked.name} تبث عبر مشغّل خاص ولا تعطي رابط ملف صوتي مباشر. الصق رابط ملف MP3/M4A مباشر أو رابط Google Drive / Dropbox / Archive.org.`;
-        showToast(`منصة ${blocked.name} غير مدعومة كرابط صوت مباشر`);
+          `⚠️ منصة ${blocked.name} تبث عبر مشغّل خاص ولا تعطي رابط ملف صوتي مباشر. الصق رابط صوت مباشر (MP3/M4A) أو Google Drive / Dropbox / Archive.org.`;
+        if (!silentIfFail) showToast(`منصة ${blocked.name} غير مدعومة كرابط صوت مباشر`);
         return;
       }
 
       scanSiteBtn.disabled = true;
-      scanSiteBtn.textContent = "⏳ جارٍ الفحص...";
-
-      // Direct audio / Google Drive / Dropbox shortcut — مع تحقق فعلي من المحتوى
-      if (isDirectAudioOrCloudUrl(trimmed)) {
-        const httpsUrl = trimmed.startsWith("http://") ? "https://" + trimmed.slice(7) : trimmed;
-        const resolved = resolveAudioUrl(httpsUrl);
-        state.discoveredTracks = [];
-        renderDiscoveredTracks();
-        scanStatusText.textContent = "جارٍ فحص الرابط والتأكد من أنه صوت فعلياً (نوع المحتوى + بصمة الملف)...";
-        try {
-          const inspection = await verifyAudioUrl(resolved.directPlayUrl);
-          if (inspection.ok) {
-            const track = {
-              url: resolved.directPlayUrl,
-              title: resolved.sourceTypeLabel,
-              formatLabel: inspection.kindLabel || resolved.sourceTypeLabel,
-              verified: true,
-              verifyNote: inspection.detail
-            };
-            state.discoveredTracks = [track];
-            applySelectedAudio(track.url, track.formatLabel, "", true);
-            scanStatusText.textContent = `✓ تم التأكد من الصوت فعلياً (${track.formatLabel}) — يمكنك تشغيله ودفع التذكير الآن.`;
-            showToast("تم التأكد من الصوت وجاهز للتشغيل!");
-          } else {
-            applySelectedAudio(resolved.directPlayUrl, resolved.sourceTypeLabel, "", false);
-            scanStatusText.textContent = `⚠️ ${inspection.detail}`;
-            showToast(inspection.detail);
-          }
-        } finally {
-          scanSiteBtn.disabled = false;
-          scanSiteBtn.textContent = "🔍 بحث عن الصوت";
-        }
-        return;
-      }
-
-      scanSiteBtn.textContent = "⏳ جاري البحث...";
-      scanStatusText.textContent = "جاري فحص صفحة الموقع واستخراج الروابط الصوتية بداخلها، ثم التحقق منها فعلياً...";
-      state.discoveredTracks = [];
-      renderDiscoveredTracks();
+      scanSiteBtn.textContent = "⏳ جارٍ التعرف...";
+      scanStatusText.textContent = "جارٍ فحص الرابط والتعرف على الصوت (رابط مباشر أو صفحة تحتوي صوتاً)...";
 
       try {
-        // Special handling for Archive.org item pages
+        await serverCheckPromise;
+        const httpsInput = toHttpsPreferred(trimmed);
+
+        // 1. Prefer server-side analyzer when running through start-server.mjs (no CORS, handles direct links & webpages)
+        if (state.hasServerApi) {
+          try {
+            const apiRes = await fetch(`/api/analyze-url?url=${encodeURIComponent(trimmed)}`);
+            if (apiRes.ok) {
+              const data = await apiRes.json();
+              if (data.ok && Array.isArray(data.tracks) && data.tracks.length > 0) {
+                state.discoveredTracks = data.tracks.map((t) => ({
+                  ...t,
+                  url: toHttpsPreferred(t.url)
+                }));
+                const chosen = state.discoveredTracks[0];
+                applySelectedAudio(
+                  chosen.url,
+                  chosen.formatLabel,
+                  data.mode === "direct_audio" ? chosen.title : (data.pageTitle || chosen.title),
+                  !!chosen.verified
+                );
+                const verifiedCount = state.discoveredTracks.filter((t) => t.verified).length;
+                if (data.mode === "direct_audio") {
+                  scanStatusText.textContent = `✓ تم التعرف على رابط الصوت المباشر (${chosen.formatLabel}) وعرضه في المشغل — جاهز للدفع للتطبيق.`;
+                  if (!silentIfFail) showToast("تم التعرف على الصوت المباشر!");
+                } else {
+                  scanStatusText.textContent = verifiedCount > 0
+                    ? `✓ تم استخراج ${state.discoveredTracks.length} صوت من الموقع (مؤكد: ${verifiedCount}) — اختر الصوت وادفعه للتطبيق.`
+                    : `عُثر على ${state.discoveredTracks.length} رابط صوتي داخل الصفحة — شغّل المقطع للتأكد قبل الدفع.`;
+                  if (!silentIfFail) showToast(`تم استخراج ${state.discoveredTracks.length} مقطع صوتي من الموقع`);
+                }
+                return;
+              }
+            }
+          } catch {
+            // Fall back to client-side pipeline
+          }
+        }
+
+        // 2. Client-side pipeline: first check if the URL itself is direct audio (even WITHOUT .mp3 extension!)
+        const directCheck = await verifyAudioUrl(httpsInput);
+        if (directCheck.ok) {
+          const resolved = resolveAudioUrl(httpsInput);
+          const track = {
+            url: resolved.directPlayUrl,
+            title: extractFileNameFromUrl(resolved.directPlayUrl),
+            formatLabel: directCheck.kindLabel || resolved.sourceTypeLabel,
+            verified: true,
+            verifyNote: directCheck.detail
+          };
+          state.discoveredTracks = [track];
+          applySelectedAudio(track.url, track.formatLabel, track.title, true);
+          scanStatusText.textContent = `✓ تم التعرف على الصوت (${track.formatLabel}) وعرضه في المشغل — جاهز للدفع إلى التطبيق.`;
+          if (!silentIfFail) showToast("تم التعرف على الصوت وجاهز للدفع!");
+          return;
+        }
+
+        // 3. Otherwise treat as webpage containing audio (Archive.org or HTML scan)
+        state.discoveredTracks = [];
+        renderDiscoveredTracks();
+        scanStatusText.textContent = "جاري فحص صفحة الموقع واستخراج الروابط الصوتية بداخلها...";
+
         const archiveMatch = trimmed.match(/archive\.org\/(?:details|embed)\/([^/?#]+)/i);
         if (archiveMatch && archiveMatch[1]) {
           const itemId = archiveMatch[1];
@@ -1478,13 +1679,12 @@
             const verifiedCount = tracks.filter((t) => t.verified).length;
             scanStatusText.textContent = verifiedCount > 0
               ? `✓ تم التأكد فعلياً من ${verifiedCount} من أصل ${tracks.length} ملف صوتي داخل Archive.org — اختر الصوت واضغط تشغيل.`
-              : `عُثر على ${tracks.length} ملف داخل Archive.org لكن تعذّر التأكد من كونه صوتياً الآن؛ جرّب اختياره يدوياً.`;
-            showToast(`تم فحص ${tracks.length} مقطع صوتي من Archive.org`);
+              : `عُثر على ${tracks.length} ملف داخل Archive.org — جرّب تشغيله قبل الدفع.`;
+            if (!silentIfFail) showToast(`تم فحص ${tracks.length} مقطع صوتي من Archive.org`);
             return;
           }
         }
 
-        // General webpage multi-proxy fetch chain
         const candidatesToFetch = [
           trimmed,
           `https://api.allorigins.win/raw?url=${encodeURIComponent(trimmed)}`,
@@ -1516,16 +1716,16 @@
           const verifiedCount = tracks.filter((t) => t.verified).length;
           scanStatusText.textContent = verifiedCount > 0
             ? `✓ تم التأكد فعلياً من ${verifiedCount} مقطع صوتي من الصفحة — يمكنك تشغيل أي منها وتثبيته.`
-            : `استُخرجت ${tracks.length} روابط محتملة لكن فحص المحتوى لم يؤكد أنها أصوات؛ اختر منها بعناية أو جرّب رابطاً مباشراً.`;
-          showToast(verifiedCount > 0 ? `تم التأكد من ${verifiedCount} مقطع صوتي` : "روابط محتملة غير مؤكدة بصرياً");
+            : `استُخرجت ${tracks.length} روابط محتملة؛ جرّب تشغيلها للتأكد قبل الدفع.`;
+          if (!silentIfFail) showToast(verifiedCount > 0 ? `تم التأكد من ${verifiedCount} مقطع صوتي` : "روابط محتملة — شغّلها للتأكد");
         } else {
           scanStatusText.textContent =
-            "لم يُعثر على ملف صوتي مباشر (.mp3/.m4a/.ogg/.m3u8) في هذه الصفحة (بعض المنصات تحمي البث بتشفير JS). جرّب رابط Archive.org / Google Drive / Dropbox أو ملف MP3 مباشر.";
-          showToast("لم نجد ملف صوتي قابلاً للتحقق داخل هذه الصفحة");
+            "لم يُعثر على ملف صوتي مباشر في هذا الرابط. تأكد أن الرابط مباشر للصوت أو لصفحة مفتوحة تحتوي صوتاً.";
+          if (!silentIfFail) showToast("لم نجد ملف صوتي قابلاً للتشغيل في هذا الرابط");
         }
       } finally {
         scanSiteBtn.disabled = false;
-        scanSiteBtn.textContent = "🔍 بحث عن الصوت";
+        scanSiteBtn.textContent = "🔍 التعرف على الصوت";
       }
     }
 
@@ -1548,8 +1748,13 @@
         detectedTypeBadge.textContent = `⏳ جارٍ التأكد: ${resolved.sourceTypeLabel}`;
         detectedTypeBadge.className = "badge warn";
         normalizedUrlPreview.textContent = resolved.directPlayUrl;
-        adminAudioPlayer.src = resolved.directPlayUrl;
-        // تحقق فعلي في الخلفية من أن الرابط يقدّم صوتاً
+        adminAudioPlayer.dataset.directUrl = resolved.directPlayUrl;
+        adminAudioPlayer.dataset.fallbackTried = "0";
+        serverCheckPromise.then(() => {
+          if (state.selectedPlayableUrl !== resolved.directPlayUrl) return;
+          adminAudioPlayer.dataset.usingProxy = state.hasServerApi ? "1" : "0";
+          adminAudioPlayer.src = previewSrcForUrl(resolved.directPlayUrl);
+        });
         const probeUrl = resolved.directPlayUrl;
         verifyAudioUrl(probeUrl).then((inspection) => {
           if (state.selectedPlayableUrl !== probeUrl) return;
@@ -1557,14 +1762,22 @@
           if (inspection.ok) {
             detectedTypeBadge.textContent = `✓ مؤكد: ${inspection.kindLabel || resolved.sourceTypeLabel}`;
             detectedTypeBadge.className = "badge verified";
+            scanStatusText.textContent = `✓ ${inspection.detail} — جاهز للتشغيل والدفع إلى التطبيق.`;
           } else {
             detectedTypeBadge.textContent = `⚠️ غير مؤكد: ${resolved.sourceTypeLabel}`;
             detectedTypeBadge.className = "badge warn";
             scanStatusText.textContent = `⚠️ ${inspection.detail}`;
           }
         });
+      } else if (/^https?:\/\//i.test(raw)) {
+        // URL has no .mp3 extension: automatically analyze whether it's a direct audio stream or a webpage with audio
+        clearTimeout(state.autoAnalyzeTimer);
+        state.autoAnalyzeTimer = setTimeout(() => {
+          if (audioUrlInput.value.trim() === raw && !state.selectedPlayableUrl) {
+            searchAudioInWebpage(raw, { silentIfFail: true });
+          }
+        }, 550);
       } else {
-        // Keep previously selected discovered track if user hasn't cleared URL; otherwise prompt to scan webpage
         if (!state.selectedPlayableUrl) {
           audioPreviewBox.classList.add("hidden");
           adminAudioPlayer.removeAttribute("src");
@@ -1604,13 +1817,24 @@
       updateAudioPreview();
     });
 
+    audioUrlInput.addEventListener("paste", () => {
+      setTimeout(() => {
+        const pasted = audioUrlInput.value.trim();
+        if (/^https?:\/\//i.test(pasted)) {
+          clearTimeout(state.autoAnalyzeTimer);
+          state.selectedPlayableUrl = "";
+          searchAudioInWebpage(pasted, { silentIfFail: false });
+        }
+      }, 40);
+    });
+
     scanSiteBtn.addEventListener("click", () => {
       searchAudioInWebpage(audioUrlInput.value);
     });
 
     previewPlayBtn.addEventListener("click", () => {
       if (!state.resolvedAudio?.isValidHttps || !adminAudioPlayer.src) {
-        showToast("اضغط «بحث عن الصوت» أولاً لاستخراج الصوت أو أدخل رابطاً مباشراً");
+        showToast("اضغط «التعرف على الصوت» أولاً لاستخراج الصوت أو أدخل رابطاً مباشراً");
         return;
       }
       adminAudioPlayer.play().catch(() => {
@@ -1618,13 +1842,33 @@
       });
     });
 
-    adminAudioPlayer.addEventListener("error", () => {
-      if (state.resolvedAudio) {
-        showToast("⚠️ المشغل لم يتمكن من فتح هذا الرابط كصوت؛ اختر رابطاً مؤكداً آخر");
+    function handleAudioFallback(playerEl, onFail) {
+      const directUrl = playerEl.dataset.directUrl;
+      if (state.hasServerApi && directUrl && playerEl.dataset.fallbackTried !== "1") {
+        playerEl.dataset.fallbackTried = "1";
+        if (playerEl.dataset.usingProxy === "1") {
+          playerEl.dataset.usingProxy = "0";
+          playerEl.src = directUrl;
+          return;
+        }
+        playerEl.dataset.usingProxy = "1";
+        playerEl.src = `/api/audio-proxy?url=${encodeURIComponent(directUrl)}`;
+        return;
       }
+      onFail();
+    }
+
+    adminAudioPlayer.addEventListener("error", () => {
+      handleAudioFallback(adminAudioPlayer, () => {
+        if (state.resolvedAudio) {
+          showToast("⚠️ المشغل لم يتمكن من فتح هذا الرابط كصوت؛ اختر رابطاً مؤكداً آخر");
+        }
+      });
     });
     listAudioPlayer.addEventListener("error", () => {
-      showToast("تعذر تشغيل هذا الصوت في المتصفح؛ إن كان الرابط صالحاً سيعمل داخل التطبيق");
+      handleAudioFallback(listAudioPlayer, () => {
+        showToast("تعذر تشغيل هذا الصوت في المتصفح؛ إن كان الرابط صالحاً سيعمل داخل التطبيق");
+      });
     });
 
     function enterCreateMode() {
@@ -1764,34 +2008,40 @@
         const chosenUrl = state.selectedPlayableUrl || audioUrlInput.value.trim();
         resolvedAudio = resolveAudioUrl(chosenUrl);
         if (!resolvedAudio.isValidHttps) {
-          showToast("يرجى إدخال رابط صوت صحيح أو الضغط على «بحث عن الصوت» لاستخراجه من الموقع");
+          showToast("يرجى إدخال رابط صوت صحيح يبدأ بـ https:// أو الضغط على «التعرف على الصوت»");
           return;
         }
-        if (!resolvedAudio.isDirectAudio && !state.selectedPlayableUrl) {
-          await searchAudioInWebpage(chosenUrl);
-          if (!state.selectedPlayableUrl) return;
-          resolvedAudio = resolveAudioUrl(state.selectedPlayableUrl);
+        if (!state.resolvedAudio?.verified) {
+          if (!resolvedAudio.isDirectAudio && !state.selectedPlayableUrl) {
+            await searchAudioInWebpage(chosenUrl);
+            if (!state.selectedPlayableUrl) return;
+            resolvedAudio = resolveAudioUrl(state.selectedPlayableUrl);
+          }
+          if (!state.resolvedAudio?.verified) {
+            const finalUrl = state.selectedPlayableUrl || resolvedAudio.directPlayUrl;
+            const publishOriginalText = publishBtn.textContent;
+            publishBtn.disabled = true;
+            publishBtn.textContent = "⏳ جارٍ التأكد من الصوت...";
+            const inspection = await verifyAudioUrl(finalUrl);
+            publishBtn.textContent = publishOriginalText;
+            if (!inspection.ok) {
+              publishBtn.disabled = false;
+              scanStatusText.textContent = `⚠️ ${inspection.detail}`;
+              showToast(inspection.detail);
+              return;
+            }
+            resolvedAudio = {
+              ...resolvedAudio,
+              directPlayUrl: inspection.finalUrl || finalUrl,
+              sourceTypeLabel: inspection.kindLabel || resolvedAudio.sourceTypeLabel,
+              verified: true
+            };
+          } else {
+            resolvedAudio = { ...resolvedAudio, ...state.resolvedAudio };
+          }
+        } else {
+          resolvedAudio = { ...resolvedAudio, ...state.resolvedAudio };
         }
-        // تحقق فعلي أخير قبل الدفع: يجب أن يقدّم الرابط صوتاً حقيقياً
-        const finalUrl = state.selectedPlayableUrl || resolvedAudio.directPlayUrl;
-        const publishOriginalText = publishBtn.textContent;
-        publishBtn.disabled = true;
-        publishBtn.textContent = "⏳ جارٍ التأكد من الصوت...";
-        const inspection = await verifyAudioUrl(finalUrl);
-        if (!inspection.ok) {
-          publishBtn.disabled = false;
-          publishBtn.textContent = publishOriginalText;
-          scanStatusText.textContent = `⚠️ ${inspection.detail}`;
-          showToast(inspection.detail);
-          return;
-        }
-        resolvedAudio = {
-          ...resolvedAudio,
-          directPlayUrl: finalUrl,
-          sourceTypeLabel: inspection.kindLabel || resolvedAudio.sourceTypeLabel,
-          verified: true
-        };
-        publishBtn.textContent = publishOriginalText;
       }
 
       const primaryTime =
@@ -1801,20 +2051,31 @@
           ? Array.from(new Set([...state.dailyTimes, primaryTime])).sort()
           : [primaryTime];
 
+      const safeTitle = title.slice(0, 160);
+      const safeBody = body.slice(0, 1000);
+      const safeDirectUrl = resolvedAudio ? toHttpsPreferred(resolvedAudio.directPlayUrl).slice(0, 1024) : null;
+      const safeOrigUrlRaw = resolvedAudio ? toHttpsPreferred(resolvedAudio.originalUrl || resolvedAudio.directPlayUrl) : null;
+      const safeOrigUrl = safeOrigUrlRaw
+        ? (safeOrigUrlRaw.startsWith("https://") ? safeOrigUrlRaw : safeDirectUrl).slice(0, 1024)
+        : null;
+      const safeSourceType = resolvedAudio
+        ? String(state.resolvedAudio?.sourceTypeLabel || resolvedAudio.sourceTypeLabel || "صوت").slice(0, 64)
+        : null;
+
       publishBtn.disabled = true;
       try {
         if (state.editingId && state.editingItem) {
           const updatePayload = {
-            title,
-            body,
+            title: safeTitle,
+            body: safeBody,
             reminderKind: state.kind,
             persistenceMode: state.persistence,
             deliveryMode: state.delivery,
             scheduledTimeHHmm: primaryTime,
             updatedAt: serverTimestamp(),
-            audioUrl: resolvedAudio ? resolvedAudio.originalUrl : deleteField(),
-            normalizedAudioUrl: resolvedAudio ? resolvedAudio.directPlayUrl : deleteField(),
-            audioSourceType: resolvedAudio ? (state.resolvedAudio?.sourceTypeLabel || resolvedAudio.sourceTypeLabel) : deleteField(),
+            audioUrl: safeOrigUrl || deleteField(),
+            normalizedAudioUrl: safeDirectUrl || deleteField(),
+            audioSourceType: safeSourceType || deleteField(),
             expiresAtMillis:
               state.persistence === "temporary"
                 ? Date.now() + parseInt(expiryHoursSelect.value || "24", 10) * 3600 * 1000
@@ -1827,11 +2088,11 @@
           for (let i = 0; i < timesToPublish.length; i++) {
             const hhmm = timesToPublish[i];
             const docId = `rem_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 7)}`;
-            const entryTitle = timesToPublish.length > 1 ? `${title} (${hhmm})` : title;
+            const entryTitle = (timesToPublish.length > 1 ? `${safeTitle} (${hhmm})` : safeTitle).slice(0, 160);
             const payload = {
               authorUid: state.currentUser.uid,
-              title: entryTitle.slice(0, 160),
-              body,
+              title: entryTitle,
+              body: safeBody,
               reminderKind: state.kind,
               persistenceMode: state.persistence,
               deliveryMode: state.delivery,
@@ -1841,10 +2102,10 @@
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp()
             };
-            if (resolvedAudio) {
-              payload.audioUrl = resolvedAudio.originalUrl;
-              payload.normalizedAudioUrl = resolvedAudio.directPlayUrl;
-              payload.audioSourceType = state.resolvedAudio?.sourceTypeLabel || resolvedAudio.sourceTypeLabel;
+            if (safeOrigUrl && safeDirectUrl) {
+              payload.audioUrl = safeOrigUrl;
+              payload.normalizedAudioUrl = safeDirectUrl;
+              payload.audioSourceType = safeSourceType || "صوت";
             }
             if (state.persistence === "temporary") {
               const hours = parseInt(expiryHoursSelect.value || "24", 10);
@@ -2004,7 +2265,10 @@
         if (playBtn) {
           playBtn.addEventListener("click", () => {
             inlinePlayerTitle.textContent = item.title;
-            listAudioPlayer.src = playUrl;
+            listAudioPlayer.dataset.directUrl = playUrl;
+            listAudioPlayer.dataset.usingProxy = state.hasServerApi ? "1" : "0";
+            listAudioPlayer.dataset.fallbackTried = "0";
+            listAudioPlayer.src = previewSrcForUrl(playUrl);
             inlinePlayerCard.classList.remove("hidden");
             listAudioPlayer.play().catch(() => {
               showToast("تعذر التشغيل التلقائي — اضغط زر التشغيل داخل المشغل");

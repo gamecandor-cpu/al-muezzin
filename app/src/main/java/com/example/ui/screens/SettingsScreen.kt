@@ -21,13 +21,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.NightsStay
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -37,6 +41,7 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,18 +54,23 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.BuildConfig
 import com.example.R
 import com.example.data.model.ReligiousOccasion
 import com.example.ui.theme.AmberStar
 import com.example.ui.theme.CrimsonBright
 import com.example.ui.theme.CrimsonContainer
 import com.example.ui.theme.CrimsonRed
+import com.example.ui.theme.EmeraldConnected
 import com.example.ui.theme.IceWhite
 import com.example.ui.theme.NavyBorder
 import com.example.ui.theme.NavyDeep
 import com.example.ui.theme.NavyPrimary
 import com.example.ui.theme.SilverText
 import com.example.ui.theme.WarmHighlight
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(
@@ -68,6 +78,11 @@ fun SettingsScreen(
     religiousOccasions: List<ReligiousOccasion>,
     onToggleRamadanTab: (Boolean) -> Unit,
     onOpenRamadanSection: () -> Unit,
+    isPortalConnected: Boolean = false,
+    lastPortalSyncMillis: Long? = null,
+    broadcastCount: Int = 0,
+    isRefreshingPortal: Boolean = false,
+    onRefreshPortalSync: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // 0 = الإعدادات العامة, 1 = المناسبات الدينية
@@ -103,6 +118,14 @@ fun SettingsScreen(
             )
 
             if (selectedTab == 0) {
+                PortalConnectionCard(
+                    isPortalConnected = isPortalConnected,
+                    lastPortalSyncMillis = lastPortalSyncMillis,
+                    broadcastCount = broadcastCount,
+                    isRefreshingPortal = isRefreshingPortal,
+                    onRefreshPortalSync = onRefreshPortalSync
+                )
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.large,
@@ -198,6 +221,122 @@ fun SettingsScreen(
                 }
             } else {
                 UpcomingOccasionsCard(occasions = religiousOccasions)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PortalConnectionCard(
+    isPortalConnected: Boolean,
+    lastPortalSyncMillis: Long?,
+    broadcastCount: Int,
+    isRefreshingPortal: Boolean,
+    onRefreshPortalSync: () -> Unit
+) {
+    val formattedSyncTime = remember(lastPortalSyncMillis) {
+        lastPortalSyncMillis?.let {
+            SimpleDateFormat("HH:mm:ss", Locale.forLanguageTag("ar")).format(Date(it))
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("settings_portal_link_card"),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = NavyDeep.copy(alpha = 0.80f)),
+        border = BorderStroke(
+            1.dp,
+            if (isPortalConnected) EmeraldConnected.copy(alpha = 0.6f) else NavyBorder
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = if (isPortalConnected) Icons.Filled.CloudDone else Icons.Filled.CloudSync,
+                    contentDescription = null,
+                    tint = if (isPortalConnected) EmeraldConnected else AmberStar,
+                    modifier = Modifier.size(22.dp)
+                )
+                Text(
+                    text = stringResource(R.string.setting_portal_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = IceWhite,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(if (isPortalConnected) EmeraldConnected else AmberStar)
+                )
+            }
+
+            Text(
+                text = stringResource(
+                    if (isPortalConnected) R.string.setting_portal_connected
+                    else R.string.setting_portal_reconnecting
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (isPortalConnected) EmeraldConnected else WarmHighlight
+            )
+
+            Text(
+                text = stringResource(R.string.setting_portal_reminders_count, broadcastCount) +
+                    (formattedSyncTime?.let { " • آخر مزامنة: $it" } ?: ""),
+                style = MaterialTheme.typography.bodySmall,
+                color = SilverText
+            )
+
+            Text(
+                text = stringResource(R.string.setting_portal_package_label, BuildConfig.APPLICATION_ID),
+                style = MaterialTheme.typography.labelSmall,
+                color = SilverText.copy(alpha = 0.85f)
+            )
+
+            OutlinedButton(
+                onClick = onRefreshPortalSync,
+                enabled = !isRefreshingPortal,
+                border = BorderStroke(
+                    1.dp,
+                    if (isPortalConnected) EmeraldConnected.copy(alpha = 0.7f) else NavyBorder
+                ),
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .minimumInteractiveComponentSize()
+                    .testTag("portal_refresh_sync_button")
+            ) {
+                if (isRefreshingPortal) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = AmberStar
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = null,
+                        tint = AmberStar,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.setting_portal_sync_btn),
+                    color = IceWhite,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }

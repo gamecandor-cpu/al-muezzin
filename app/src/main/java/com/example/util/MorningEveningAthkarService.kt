@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -174,19 +175,29 @@ class MorningEveningAthkarService : Service() {
             isPlaying = true
         )
 
-        // فحص فعلي للرابط قبل التشغيل: نوع المحتوى + بصمة الملف، ثم التشغيل أو الصوت الاحتياطي المحلي
+        // فحص فعلي للرابط: إذا كان صفحة HTML بلا صوت مستخرج نستخدم الاحتياطي، وإلا نجرب التشغيل المباشر بـ MediaPlayer مع User-Agent
         serviceScope.launch {
             val inspection = RemoteAudioVerifier.inspect(resolved.directPlayUrl)
-            if (!inspection.ok) {
-                Log.w(TAG, "Remote link not verified as audio: ${inspection.detail}; using local fallback")
+            val targetUrl = inspection.extractedAudioUrl
+                ?.let { AudioUrlResolver.resolve(it).directPlayUrl }
+                ?.takeIf { it.startsWith("https://", ignoreCase = true) }
+                ?: inspection.finalUrl.takeIf { it.startsWith("https://", ignoreCase = true) }
+                ?: resolved.directPlayUrl
+
+            if (inspection.isHtmlContent && inspection.extractedAudioUrl.isNullOrBlank()) {
+                Log.w(TAG, "Remote link returned HTML page with no audio: ${inspection.detail}; using local fallback")
                 withContext(Dispatchers.Main) {
                     startLocalFallback(R.raw.athkar_morning)
                 }
                 return@launch
             }
-            Log.i(TAG, "Remote audio verified: ${inspection.kind.labelAr} (${inspection.detail})")
+            if (inspection.ok) {
+                Log.i(TAG, "Remote audio verified: ${inspection.kind.labelAr} (${inspection.detail})")
+            } else {
+                Log.w(TAG, "Remote pre-check inconclusive (${inspection.detail}); attempting direct MediaPlayer stream anyway")
+            }
             withContext(Dispatchers.Main) {
-                playRemoteMediaPlayer(resolved.directPlayUrl)
+                playRemoteMediaPlayer(targetUrl)
             }
         }
     }
@@ -194,6 +205,7 @@ class MorningEveningAthkarService : Service() {
     private fun playRemoteMediaPlayer(url: String) {
         releasePlayer()
         runCatching {
+            val headers = mapOf("User-Agent" to RemoteAudioVerifier.USER_AGENT)
             val player = MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
@@ -201,7 +213,7 @@ class MorningEveningAthkarService : Service() {
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
-                setDataSource(url)
+                setDataSource(this@MorningEveningAthkarService, Uri.parse(url), headers)
                 setOnPreparedListener { mp ->
                     mp.start()
                 }

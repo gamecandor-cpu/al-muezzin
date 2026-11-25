@@ -173,4 +173,11 @@
     <string name="setting_cloud_signed_in_as">الحساب المتصل: %1$s</string>
     <string name="settings_tab_general">الإعدادات العامة</string>
     <string name="settings_tab_occasions">المناسبات الدينية</string>
+
+    <string name="setting_portal_title">الربط بموقع الإدارة (المؤذن)</string>
+    <string name="setting_portal_connected">متصل بالسحابة — يستقبل التذكيرات والصوتيات فوراً</string>
+    <string name="setting_portal_reconnecting">جاري الاتصال بموقع الإدارة...</string>
+    <string name="setting_portal_sync_btn">مزامنة الآن</string>
+    <string name="setting_portal_reminders_count">التذكيرات المستلمة حالياً: %1$d</string>
+    <string name="setting_portal_package_label">معرف الحزمة: %1$s</string>
 </resources>

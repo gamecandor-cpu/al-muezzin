@@ -33,12 +33,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -195,39 +197,68 @@ class CloudSyncRepository(
         )
     }
 
-    fun observeActiveBroadcastReminders(): Flow<List<BroadcastReminder>> = flow {
+    fun observeActiveBroadcastReminders(): Flow<List<BroadcastReminder>> {
         val path = "broadcast_reminders"
-        emitAll(
-            db.collection(path)
-                .whereEqualTo("isActive", true)
-                .snapshots()
-                .map { snapshot ->
-                    val now = System.currentTimeMillis()
-                    snapshot.documents
-                        .mapNotNull { doc ->
-                            doc.toObject(
-                                BroadcastReminder::class.java,
-                                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                            )
-                        }
-                        .filter { it.isActive && it.isNotExpired(now) }
-                        .sortedWith(
-                            compareByDescending<BroadcastReminder> { it.isPinned }
-                                .thenByDescending { it.updatedAt?.toDate()?.time ?: 0L }
+        return db.collection(path)
+            .whereEqualTo("isActive", true)
+            .snapshots()
+            .map { snapshot ->
+                val now = System.currentTimeMillis()
+                snapshot.documents
+                    .mapNotNull { doc ->
+                        doc.toObject(
+                            BroadcastReminder::class.java,
+                            DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
                         )
-                }
-                .catch { error ->
-                    val firestoreError = generateSequence(error) { it.cause }
-                        .filterIsInstance<FirebaseFirestoreException>()
-                        .firstOrNull()
-                    if (firestoreError == null && error is CancellationException) throw error
-                    val exceptionToLog = firestoreError ?: (error as? Exception)
-                    if (exceptionToLog != null) {
-                        handleFirestoreError(exceptionToLog, OperationType.LIST, path)
                     }
-                    emit(emptyList())
+                    .filter { it.isActive && it.isNotExpired(now) }
+                    .sortedWith(
+                        compareByDescending<BroadcastReminder> { it.isPinned }
+                            .thenByDescending { it.updatedAt?.toDate()?.time ?: 0L }
+                    )
+            }
+            .retryWhen { cause, attempt ->
+                val firestoreError = generateSequence(cause) { it.cause }
+                    .filterIsInstance<FirebaseFirestoreException>()
+                    .firstOrNull()
+                if (firestoreError == null && cause is CancellationException) throw cause
+                val exceptionToLog = firestoreError ?: (cause as? Exception)
+                if (exceptionToLog != null) {
+                    handleFirestoreError(exceptionToLog, OperationType.LIST, path)
                 }
-        )
+                val backoffMs = minOf(30_000L, 2_000L * (1L shl attempt.toInt().coerceAtMost(4)))
+                delay(backoffMs)
+                true
+            }
+    }
+
+    suspend fun fetchActiveBroadcastRemindersOnce(): Result<List<BroadcastReminder>> {
+        val path = "broadcast_reminders"
+        return try {
+            val snapshot = db.collection(path)
+                .whereEqualTo("isActive", true)
+                .get()
+                .await()
+            val now = System.currentTimeMillis()
+            val items = snapshot.documents
+                .mapNotNull { doc ->
+                    doc.toObject(
+                        BroadcastReminder::class.java,
+                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                    )
+                }
+                .filter { it.isActive && it.isNotExpired(now) }
+                .sortedWith(
+                    compareByDescending<BroadcastReminder> { it.isPinned }
+                        .thenByDescending { it.updatedAt?.toDate()?.time ?: 0L }
+                )
+            Result.success(items)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.LIST, path)
+            Result.failure(e)
+        }
     }
 
     suspend fun saveOrUpdateProfile(
@@ -293,6 +324,7 @@ class CloudSyncRepository(
         private const val KEY_FCM_TOKEN = "fcm_token"
 
         val DEFAULT_FCM_TOPICS = listOf(
+            "broadcast_reminders",
             "muezzin_announcements",
             "religious_occasions",
             "athkar_reminders"
@@ -326,14 +358,38 @@ class CloudSyncRepository(
                 DEFAULT_FCM_TOPICS.forEach { topic ->
                     runCatching { messaging.subscribeToTopic(topic).await() }
                 }
-                val token = messaging.token.await()
+                val token: String? = messaging.token.await()
                 if (!token.isNullOrBlank()) {
                     saveLocalFcmToken(context, token)
+                    syncFcmTokenIfSignedIn(context, token)
                 }
                 token
             }.onFailure { e ->
                 Log.w(TAG, "FCM token/topic initialization deferred: ${e.message}")
             }.getOrNull()
+        }
+
+        suspend fun syncFcmTokenIfSignedIn(context: Context, token: String) {
+            val uid = Firebase.auth.currentUser?.uid ?: return
+            val safeToken = token.takeIf { it.isNotBlank() }?.take(512) ?: return
+            runCatching {
+                val db = FirebaseFirestore.getInstance(
+                    context.applicationContext.getString(R.string.firestore_database_id)
+                )
+                val docRef = db.collection("users").document(uid)
+                val snap = docRef.get().await()
+                if (snap.exists()) {
+                    docRef.update(
+                        mapOf(
+                            "fcmToken" to safeToken,
+                            "subscribedTopics" to DEFAULT_FCM_TOPICS,
+                            "updatedAt" to FieldValue.serverTimestamp()
+                        )
+                    ).await()
+                }
+            }.onFailure { e ->
+                Log.w(TAG, "Deferred FCM token Firestore sync: ${e.message}")
+            }
         }
 
         fun attemptAutoSignIn(

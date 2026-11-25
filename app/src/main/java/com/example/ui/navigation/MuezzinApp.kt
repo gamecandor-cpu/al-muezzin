@@ -2,6 +2,7 @@ package com.example.ui.navigation
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -115,6 +116,7 @@ enum class MuezzinDestination(
 
 @Composable
 fun MuezzinApp(
+    launchIntent: Intent? = null,
     muezzinViewModel: MuezzinViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -138,6 +140,10 @@ fun MuezzinApp(
         muezzinViewModel.events.collect { message ->
             snackbarHostState.showSnackbar(message)
         }
+    }
+
+    LaunchedEffect(launchIntent) {
+        muezzinViewModel.handleLaunchIntent(launchIntent)
     }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -428,7 +434,12 @@ fun MuezzinApp(
                             isRamadanTabActive = uiState.isRamadanActive,
                             religiousOccasions = uiState.religiousOccasions,
                             onToggleRamadanTab = muezzinViewModel::setRamadanTabEnabled,
-                            onOpenRamadanSection = openRamadanFromSettings
+                            onOpenRamadanSection = openRamadanFromSettings,
+                            isPortalConnected = uiState.isPortalConnected,
+                            lastPortalSyncMillis = uiState.lastPortalSyncMillis,
+                            broadcastCount = uiState.broadcastReminders.size,
+                            isRefreshingPortal = uiState.isRefreshingPortal,
+                            onRefreshPortalSync = muezzinViewModel::refreshPortalSync
                         )
                     }
                 }

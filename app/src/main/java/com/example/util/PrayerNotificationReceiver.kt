@@ -108,6 +108,7 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
         const val ACTION_ATHKAR_MORNING = "com.example.ACTION_ATHKAR_MORNING"
         const val ACTION_ATHKAR_EVENING = "com.example.ACTION_ATHKAR_EVENING"
         const val ACTION_REMOTE_REMINDER_ALARM = "com.example.ACTION_REMOTE_REMINDER_ALARM"
+        const val ACTION_OPEN_REMOTE_REMINDER = "com.example.ACTION_OPEN_REMOTE_REMINDER"
 
         const val EXTRA_PRAYER_KEY = "extra_prayer_key"
         const val EXTRA_PRAYER_NAME_AR = "extra_prayer_name_ar"
@@ -302,17 +303,29 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
         fun showCloudPushNotification(
             context: Context,
             title: String,
-            body: String
+            body: String,
+            reminderId: String? = null,
+            audioUrl: String? = null
         ) {
             ensureAllChannels(context)
             if (!hasNotificationPermission(context)) return
 
+            val uniqueKey = reminderId?.takeIf { it.isNotBlank() } ?: title
             val launchIntent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                action = if (!reminderId.isNullOrBlank() || !audioUrl.isNullOrBlank()) {
+                    ACTION_OPEN_REMOTE_REMINDER
+                } else {
+                    Intent.ACTION_MAIN
+                }
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                if (!reminderId.isNullOrBlank()) putExtra(EXTRA_REMINDER_ID, reminderId)
+                putExtra(EXTRA_REMINDER_TITLE, title)
+                putExtra(EXTRA_REMINDER_BODY, body)
+                if (!audioUrl.isNullOrBlank()) putExtra(EXTRA_REMINDER_AUDIO_URL, audioUrl)
             }
             val contentIntent = PendingIntent.getActivity(
                 context,
-                title.hashCode(),
+                6100 + (uniqueKey.hashCode() and 0x7FFF),
                 launchIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
@@ -328,7 +341,7 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
                 .setContentIntent(contentIntent)
                 .build()
 
-            val notifId = 6100 + (title.hashCode() and 0xFF)
+            val notifId = 6100 + (uniqueKey.hashCode() and 0x7FFF)
             NotificationManagerCompat.from(context).notify(notifId, notification)
         }
 
