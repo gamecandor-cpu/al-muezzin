@@ -1,0 +1,176 @@
+<resources>
+    <string name="app_name">المؤذن|Muezzin</string>
+    <string name="nav_home">الرئيسية</string>
+    <string name="nav_quran">المصحف</string>
+    <string name="nav_qibla">القبلة</string>
+    <string name="nav_athkar">الأذكار</string>
+    <string name="nav_ramadan">رمضان</string>
+    <string name="nav_settings">الإعدادات</string>
+
+    <string name="quran_title">المصحف الشريف</string>
+    <string name="quran_riwayah">برواية حفص عن عاصم</string>
+    <string name="quran_index">الفهرس</string>
+    <string name="quran_surahs">السور</string>
+    <string name="quran_juzs">الأجزاء</string>
+    <string name="quran_search_tab">بحث</string>
+    <string name="quran_search_hint">ابحث عن أي آية أو كلمة...</string>
+    <string name="quran_go_to_page">انتقال لصفحة (1 - 604)</string>
+    <string name="quran_go">انتقال</string>
+    <string name="quran_bookmark_save">حفظ العلامة</string>
+    <string name="quran_bookmark_saved">تم حفظ علامة الصفحة %1$d</string>
+    <string name="quran_bookmark_jump">العلامة (%1$d)</string>
+    <string name="quran_prev_page">السابقة</string>
+    <string name="quran_next_page">التالية</string>
+    <string name="quran_paper_mode">الوضع الورقي</string>
+    <string name="quran_night_mode">الوضع الليلي</string>
+    <string name="quran_font_size">حجم الخط</string>
+    <string name="quran_loading">جاري تجهيز المصحف الشريف...</string>
+
+    <string name="location_detect">تحديد الموقع</string>
+    <string name="location_detecting">جاري التحديد...</string>
+    <string name="location_my_location">موقعي</string>
+    <string name="location_choose_city">اختر الدولة أو المدينة</string>
+    <string name="location_search_hint">ابحث عن أي دولة أو مدينة...</string>
+    <string name="location_search_empty">لا توجد نتائج مطابقة، جرّب اسماً آخر</string>
+    <string name="location_gps_action">استخدام الموقع الحالي (GPS)</string>
+
+    <string name="next_prayer_label">الصلاة القادمة</string>
+    <string name="next_prayer_badge">القادمة</string>
+    <string name="countdown_label">متبقي حتى الأذان</string>
+    <string name="city_local_time_format">الساعة في %1$s: %2$s</string>
+    <string name="prayer_times_title">مواقيت الصلاة</string>
+    <string name="tab_prayer_times">المواقيت</string>
+    <string name="tab_time_adjust">تعديل التوقيت</string>
+    <string name="tap_for_virtue_hint">اضغط للأذان والفضل</string>
+    <string name="loading_prayers">جاري تحميل المواقيت...</string>
+    <string name="select_location_prompt">يرجى تحديد الموقع أو اختيار مدينة لعرض المواقيت</string>
+    <string name="retry">إعادة المحاولة</string>
+
+    <string name="time_adjust_title">تعديل فرق التوقيت</string>
+    <string name="time_adjust_subtitle">إذا كان هناك اختلاف عن التوقيت المحلي لمدينتك يمكنك التعديل بدقة</string>
+    <string name="time_adjust_global">تعديل عام لجميع الصلوات</string>
+    <string name="time_adjust_per_prayer">تعديل كل صلاة على حدة</string>
+    <string name="time_adjust_reset">إعادة ضبط التوقيت</string>
+
+    <string name="virtue_sunnah_label">السنن والركعات</string>
+    <string name="virtue_dhikr_label">من أذكارها وآدابها</string>
+    <string name="close_label">إغلاق</string>
+
+    <string name="period_morning_sunrise">وقت الشروق</string>
+    <string name="period_day_sun">وقت النهار</string>
+    <string name="period_maghrib_sunset">وقت المغرب</string>
+    <string name="moon_new">محاق</string>
+    <string name="moon_waxing_crescent">هلال متزايد</string>
+    <string name="moon_first_quarter">تربيع أول</string>
+    <string name="moon_waxing_gibbous">أحدب متزايد</string>
+    <string name="moon_full">بدر كامل</string>
+    <string name="moon_waning_gibbous">أحدب متناقص</string>
+    <string name="moon_last_quarter">تربيع أخير</string>
+    <string name="moon_waning_crescent">هلال متناقص</string>
+
+    <string name="qibla_title">اتجاه القبلة</string>
+    <string name="qibla_info_ready">وجّه هاتفك حتى تتطابق الإبرة مع رمز الكعبة</string>
+    <string name="qibla_aligned">أنت متجه نحو القبلة</string>
+    <string name="qibla_info_no_location">حدد الموقع أو اختر مدينتك لحساب اتجاه القبلة</string>
+    <string name="qibla_no_sensor">مستشعر البوصلة غير متوفر على هذا الجهاز؛ يظهر الاتجاه الثابت من الشمال.</string>
+
+    <string name="athkar_tab_list">الأذكار</string>
+    <string name="athkar_tab_tasbih">المسبحة</string>
+    <string name="athkar_search_hint">ابحث في الأذكار...</string>
+    <string name="athkar_all_categories">الكل</string>
+    <string name="athkar_reset_all">تصفير الكل</string>
+    <string name="athkar_completed_badge">مكتمل</string>
+
+    <string name="tasbih_title">المسبحة الإلكترونية</string>
+    <string name="tasbih_reset">إعادة تعيين</string>
+    <string name="tasbih_target_format">الهدف: %1$d</string>
+
+    <string name="ramadan_title">رمضان والصيام</string>
+    <string name="ramadan_suhoor_title">السحور والإمساك والإفطار</string>
+    <string name="ramadan_imsak_label">الإمساك</string>
+    <string name="ramadan_suhoor_label">وقت السحور</string>
+    <string name="ramadan_fajr_label">الفجر</string>
+    <string name="ramadan_iftar_label">الإفطار (المغرب)</string>
+    <string name="ramadan_alarms_title">منبه الإمساك والإفطار</string>
+    <string name="ramadan_imsak_alarm">منبه السحور والإمساك</string>
+    <string name="ramadan_iftar_alarm">منبه الإفطار</string>
+    <string name="ramadan_test_imsak">تجربة منبه الإمساك</string>
+    <string name="ramadan_test_iftar">تجربة منبه الإفطار</string>
+    <string name="ramadan_qada_title">أيام القضاء</string>
+    <string name="ramadan_qada_remaining">أيام متبقية</string>
+    <string name="ramadan_qada_completed">أيام مقضية</string>
+    <string name="ramadan_qada_mark_done">تم قضاء يوم صيام</string>
+    <string name="ramadan_dua_title">أدعية الصيام</string>
+
+    <string name="settings_title">الإعدادات</string>
+    <string name="setting_calc_method">طريقة الحساب</string>
+    <string name="setting_calc_method_desc">هيئة حساب مواقيت الصلاة</string>
+    <string name="setting_asr_method">المذهب (العصر)</string>
+    <string name="setting_asr_method_desc">طريقة حساب صلاة العصر</string>
+    <string name="setting_time_format">صيغة الوقت</string>
+    <string name="setting_time_format_desc">عرض الوقت بصيغة 12 أو 24 ساعة</string>
+    <string name="setting_athan">تنبيه الأذان</string>
+    <string name="setting_athan_desc">تشغيل صوت التنبيه عند مواقيت الصلاة</string>
+    <string name="setting_test_athan">تجربة صوت الأذان</string>
+    <string name="setting_vibration">الاهتزاز</string>
+    <string name="setting_vibration_desc">اهتزاز عند الضغط على المسبحة والأذكار</string>
+    <string name="setting_about">عن التطبيق</string>
+    <string name="setting_about_desc">تطبيق المؤذن - مواقيت الصلاة، القبلة، الأذكار والمسبحة، ورمضان\nالإصدار 2.0.0</string>
+    <string name="athan_time_toast">حان الآن وقت الصلاة</string>
+
+    <string name="setting_ramadan_section_title">قسم رمضان والصيام</string>
+    <string name="setting_ramadan_status_in_settings">موجود في الإعدادات</string>
+    <string name="setting_ramadan_status_active_tab">مفعّل في التبويبات</string>
+    <string name="setting_ramadan_desc_inactive">السحور والإمساك ومنبه الإفطار وأيام القضاء متاحة هنا في الإعدادات، ويمكنك تفعيلها لتظهر كتبويب في الشريط السفلي.</string>
+    <string name="setting_ramadan_desc_active">تبويب رمضان ظاهر الآن في الشريط السفلي بجانب التبويبات الرئيسية.</string>
+    <string name="setting_ramadan_activate_btn">تفعيل</string>
+    <string name="setting_ramadan_deactivate_btn">إلغاء التفعيل</string>
+    <string name="setting_ramadan_open_btn">فتح</string>
+    <string name="setting_ramadan_auto_title">التفعيل التلقائي في رمضان</string>
+    <string name="setting_ramadan_auto_desc">إظهار تبويب رمضان تلقائياً عند دخول الشهر الكريم</string>
+    <string name="ramadan_back_to_settings">العودة للإعدادات</string>
+    <string name="ramadan_pin_to_tabs">تفعيل في التبويبات</string>
+
+    <string name="setting_athan_section_title">الأذان والمؤذن</string>
+    <string name="setting_muezzin_voice">صوت المؤذن</string>
+    <string name="setting_muezzin_voice_desc">الافتراضي: ناصر القطامي — يمكنك التغيير في أي وقت</string>
+    <string name="setting_fajr_athan">تخصيص أذان الفجر</string>
+    <string name="setting_fajr_athan_desc">تشغيل أذان الفجر الخاص تلقائياً عند صلاة الفجر (افتراضي)</string>
+    <string name="setting_athan_play_mode">مدة تشغيل الأذان</string>
+    <string name="setting_athan_play_mode_desc">اختر تشغيل الأذان كاملاً أو جزءاً مختصراً منه</string>
+    <string name="setting_test_fajr_athan">تجربة أذان الفجر</string>
+    <string name="setting_stop_athan">إيقاف الأذان</string>
+    <string name="athan_now_playing_banner">جاري رفع الأذان الآن...</string>
+
+    <string name="setting_occasions_title">المناسبات الدينية القادمة</string>
+    <string name="setting_occasions_subtitle">المناسبات القادمة مميزة باللون الأحمر وتهدأ حدّته كلما اقترب الموعد</string>
+    <string name="occasion_today_badge">اليوم</string>
+    <string name="occasion_tomorrow_badge">غداً</string>
+    <string name="occasion_banner_tag">مناسبة دينية مباركة</string>
+
+    <string name="athkar_audio_card_title">أذكار الصباح والمساء الصوتية</string>
+    <string name="athkar_audio_auto_label">التشغيل التلقائي في مواعيدها</string>
+    <string name="athkar_audio_morning_btn">أذكار الصباح</string>
+    <string name="athkar_audio_evening_btn">أذكار المساء</string>
+    <string name="athkar_audio_stop_btn">إيقاف التشغيل</string>
+    <string name="athkar_audio_schedule_format">الصباح: %1$s • المساء: %2$s</string>
+    <string name="athkar_now_playing_banner">جاري تشغيل %1$s الآن...</string>
+
+    <string name="setting_notifications_title">الإشعارات والتنبيهات الفورية</string>
+    <string name="setting_notifications_status_granted">إشعارات النظام مفعّلة (الصلاة، الأعياد، الأذكار، السحابة)</string>
+    <string name="setting_notifications_status_denied">يرجى السماح بالإشعارات ليصلك الأذان وتنبيهات الأعياد والمناسبات</string>
+    <string name="setting_notifications_grant_btn">تفعيل الإشعارات</string>
+    <string name="setting_notifications_test_btn">إرسال إشعار تجريبي</string>
+    <string name="setting_athkar_auto_title">التشغيل التلقائي لأذكار الصباح والمساء</string>
+    <string name="setting_athkar_auto_desc">تشغيل أذكار الصباح الساعة ٦:٠٠ صباحاً وأذكار المساء قبل أذان المغرب بساعة (قابل للتعديل)</string>
+
+    <string name="setting_cloud_title">المزامنة السحابية وإشعارات Firebase</string>
+    <string name="setting_cloud_fcm_active">إشعارات السحابة (FCM) متصلة ومشتركة في التنبيهات</string>
+    <string name="setting_cloud_fcm_pending">جاري تهيئة رمز إشعارات السحابة (FCM)...</string>
+    <string name="setting_cloud_signin_google">تسجيل الدخول بحساب Google للمزامنة</string>
+    <string name="setting_cloud_sync_now">مزامنة الإعدادات الآن</string>
+    <string name="setting_cloud_signout">تسجيل الخروج</string>
+    <string name="setting_cloud_signed_in_as">الحساب المتصل: %1$s</string>
+    <string name="settings_tab_general">الإعدادات العامة</string>
+    <string name="settings_tab_occasions">المناسبات الدينية</string>
+</resources>

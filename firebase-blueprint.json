@@ -1,0 +1,162 @@
+{
+  "entities": {
+    "UserPushProfile": {
+      "title": "UserPushProfile",
+      "description": "Authenticated user notification preferences, FCM registration token, and worship sync metadata",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user owning this document"
+        },
+        "fcmToken": {
+          "type": "string",
+          "description": "Optional Firebase Cloud Messaging device registration token"
+        },
+        "cityName": {
+          "type": "string",
+          "description": "Optional selected city name in Arabic"
+        },
+        "athanEnabled": {
+          "type": "boolean",
+          "description": "Whether prayer notification alerts are enabled"
+        },
+        "athkarAutoEnabled": {
+          "type": "boolean",
+          "description": "Whether automatic morning and evening Athkar playback is enabled"
+        },
+        "subscribedTopics": {
+          "type": "array",
+          "description": "List of subscribed FCM notification topics"
+        },
+        "qadaRemaining": {
+          "type": "integer",
+          "description": "Remaining fasting days to make up"
+        },
+        "qadaCompleted": {
+          "type": "integer",
+          "description": "Completed fasting makeup days"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created via FieldValue.serverTimestamp()"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest update via FieldValue.serverTimestamp()"
+        }
+      },
+      "required": [
+        "userId",
+        "athanEnabled",
+        "athkarAutoEnabled",
+        "subscribedTopics",
+        "qadaRemaining",
+        "qadaCompleted",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "BroadcastReminder": {
+      "title": "BroadcastReminder",
+      "description": "Admin-managed pinned or temporary audio/text reminder pushed immediately, at a scheduled time, or repeating daily to app users",
+      "type": "object",
+      "properties": {
+        "authorUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the admin who published the reminder"
+        },
+        "title": {
+          "type": "string",
+          "description": "Arabic display title of the reminder"
+        },
+        "body": {
+          "type": "string",
+          "description": "Optional message body or dhikr text"
+        },
+        "reminderKind": {
+          "type": "string",
+          "enum": ["text", "audio"],
+          "description": "Whether this is a text notification or an audio reminder"
+        },
+        "persistenceMode": {
+          "type": "string",
+          "enum": ["pinned", "temporary"],
+          "description": "Whether the reminder stays pinned in the app or expires automatically"
+        },
+        "deliveryMode": {
+          "type": "string",
+          "enum": ["now", "scheduled", "daily"],
+          "description": "Trigger immediately, at a single scheduled time, or daily repeating"
+        },
+        "scheduledTimeHHmm": {
+          "type": "string",
+          "description": "24-hour HH:mm daily/scheduled time"
+        },
+        "audioUrl": {
+          "type": "string",
+          "description": "Original https audio URL pasted in the admin portal"
+        },
+        "normalizedAudioUrl": {
+          "type": "string",
+          "description": "Direct playable https audio URL resolved from Drive/Dropbox/direct audio link"
+        },
+        "audioSourceType": {
+          "type": "string",
+          "description": "Detected audio format or provider label"
+        },
+        "isActive": {
+          "type": "boolean",
+          "description": "Whether this reminder is currently active on user devices"
+        },
+        "triggerNonce": {
+          "type": "integer",
+          "description": "Monotonic trigger counter incremented on immediate re-push"
+        },
+        "expiresAtMillis": {
+          "type": "integer",
+          "description": "Optional UTC epoch milliseconds when a temporary reminder expires"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "authorUid",
+        "title",
+        "body",
+        "reminderKind",
+        "persistenceMode",
+        "deliveryMode",
+        "scheduledTimeHHmm",
+        "isActive",
+        "triggerNonce",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserPushProfile"
+      },
+      "description": "Per-user push notification registration and worship preferences"
+    },
+    "/broadcast_reminders/{reminderId}": {
+      "schema": {
+        "$ref": "#/entities/BroadcastReminder"
+      },
+      "description": "Admin-managed remote text and audio reminders synchronized to the app"
+    }
+  }
+}

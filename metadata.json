@@ -1,0 +1,6 @@
+{
+  "name": "المؤذن|Muezzin",
+  "description": "تطبيق المؤذن لمواقيت الصلاة والأذان، اتجاه القبلة، والمسبحة الإلكترونية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

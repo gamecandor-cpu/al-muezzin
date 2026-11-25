@@ -1,0 +1,149 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidUserPushProfile(data) {
+      return data.userId is string &&
+             data.userId.size() > 0 &&
+             data.userId.size() <= 128 &&
+             data.athanEnabled is bool &&
+             data.athkarAutoEnabled is bool &&
+             data.subscribedTopics is list &&
+             data.subscribedTopics.size() <= 10 &&
+             (data.subscribedTopics.size() == 0 || data.subscribedTopics[0] is string) &&
+             data.qadaRemaining is int &&
+             data.qadaRemaining >= 0 &&
+             data.qadaRemaining <= 5000 &&
+             data.qadaCompleted is int &&
+             data.qadaCompleted >= 0 &&
+             data.qadaCompleted <= 5000 &&
+             (!('fcmToken' in data) || (data.fcmToken is string && data.fcmToken.size() <= 512)) &&
+             (!('cityName' in data) || (data.cityName is string && data.cityName.size() <= 120)) &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    function isValidBroadcastReminder(data) {
+      return data.authorUid is string &&
+             data.authorUid.size() > 0 &&
+             data.authorUid.size() <= 128 &&
+             data.title is string &&
+             data.title.size() > 0 &&
+             data.title.size() <= 160 &&
+             data.body is string &&
+             data.body.size() <= 1000 &&
+             data.reminderKind in ['text', 'audio'] &&
+             data.persistenceMode in ['pinned', 'temporary'] &&
+             data.deliveryMode in ['now', 'scheduled', 'daily'] &&
+             data.scheduledTimeHHmm is string &&
+             data.scheduledTimeHHmm.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') &&
+             (!('audioUrl' in data) || (data.audioUrl is string && data.audioUrl.size() > 0 && data.audioUrl.size() <= 1024 && data.audioUrl.matches('^https://.*'))) &&
+             (!('normalizedAudioUrl' in data) || (data.normalizedAudioUrl is string && data.normalizedAudioUrl.size() > 0 && data.normalizedAudioUrl.size() <= 1024 && data.normalizedAudioUrl.matches('^https://.*'))) &&
+             (!('audioSourceType' in data) || (data.audioSourceType is string && data.audioSourceType.size() <= 64)) &&
+             data.isActive is bool &&
+             data.triggerNonce is int &&
+             data.triggerNonce >= 1 &&
+             data.triggerNonce <= 1000000 &&
+             (!('expiresAtMillis' in data) || (data.expiresAtMillis is int && data.expiresAtMillis >= 0)) &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'userId', 'athanEnabled', 'athkarAutoEnabled',
+                         'subscribedTopics', 'qadaRemaining', 'qadaCompleted',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'fcmToken', 'cityName',
+                         'athanEnabled', 'athkarAutoEnabled', 'subscribedTopics',
+                         'qadaRemaining', 'qadaCompleted', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidUserPushProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidUserPushProfile(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'fcmToken', 'cityName', 'athanEnabled',
+                         'athkarAutoEnabled', 'subscribedTopics',
+                         'qadaRemaining', 'qadaCompleted', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    match /broadcast_reminders/{reminderId} {
+      // Published app-wide prayer/dhikr reminders contain zero PII and are readable by app clients.
+      allow get, list: if true;
+
+      allow create: if isSignedIn() &&
+                       isValidId(reminderId) &&
+                       incoming().authorUid == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'authorUid', 'title', 'body', 'reminderKind',
+                         'persistenceMode', 'deliveryMode', 'scheduledTimeHHmm',
+                         'isActive', 'triggerNonce', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'authorUid', 'title', 'body', 'reminderKind',
+                         'persistenceMode', 'deliveryMode', 'scheduledTimeHHmm',
+                         'audioUrl', 'normalizedAudioUrl', 'audioSourceType',
+                         'isActive', 'triggerNonce', 'expiresAtMillis',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidBroadcastReminder(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(reminderId) &&
+                       existing().authorUid == request.auth.uid &&
+                       incoming().authorUid == existing().authorUid &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidBroadcastReminder(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'title', 'body', 'reminderKind',
+                         'persistenceMode', 'deliveryMode', 'scheduledTimeHHmm',
+                         'audioUrl', 'normalizedAudioUrl', 'audioSourceType',
+                         'isActive', 'triggerNonce', 'expiresAtMillis',
+                         'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && isValidId(reminderId) && existing().authorUid == request.auth.uid;
+    }
+  }
+}
