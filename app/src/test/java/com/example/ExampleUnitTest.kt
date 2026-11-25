@@ -223,6 +223,40 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun audioUrlResolver_recognizesHlsAndCloudDirectness() {
+        val hls = com.example.util.AudioUrlResolver.resolve("https://cdn.example.com/athan/stream.m3u8")
+        assertTrue(hls.isValidHttps)
+        assertTrue(hls.likelyDirectAudio)
+        assertEquals("بث HLS صوتي", hls.sourceTypeLabel)
+
+        val drive = com.example.util.AudioUrlResolver.resolve("https://drive.google.com/file/d/XYZ987/view")
+        assertTrue(drive.isCloud)
+        assertTrue(drive.likelyDirectAudio)
+
+        val page = com.example.util.AudioUrlResolver.resolve("https://example.com/article.html")
+        assertTrue(!page.likelyDirectAudio)
+    }
+
+    @Test
+    fun audioMagicSniffer_detectsKnownContainerSignatures() {
+        val sniffer = com.example.util.AudioMagicSniffer
+        assertEquals(com.example.util.AudioKind.MP3, sniffer.sniff(byteArrayOf(0x49, 0x44, 0x33, 3, 0, 0)))
+        assertEquals(com.example.util.AudioKind.MP3, sniffer.sniff(byteArrayOf(0xFF.toByte(), 0xFB.toByte(), 0x90.toByte())))
+        assertEquals(com.example.util.AudioKind.AAC, sniffer.sniff(byteArrayOf(0xFF.toByte(), 0xF1.toByte(), 0x50.toByte())))
+        assertEquals(com.example.util.AudioKind.FLAC, sniffer.sniff(byteArrayOf(0x66, 0x4C, 0x61, 0x43)))
+        assertEquals(com.example.util.AudioKind.OGG, sniffer.sniff(byteArrayOf(0x4F, 0x67, 0x67, 0x53)))
+        assertEquals(
+            com.example.util.AudioKind.WAV,
+            sniffer.sniff(byteArrayOf(0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45))
+        )
+        assertEquals(com.example.util.AudioKind.HLS, sniffer.sniff("#EXTM3U\n".toByteArray(Charsets.US_ASCII)))
+        assertEquals(com.example.util.AudioKind.UNKNOWN, sniffer.sniff(byteArrayOf(1, 2, 3, 4)))
+        assertTrue(sniffer.looksAudioContentType("audio/mpeg"))
+        assertTrue(sniffer.looksAudioContentType("application/vnd.apple.mpegurl"))
+        assertTrue(!sniffer.looksAudioContentType("text/html"))
+    }
+
+    @Test
     fun computeAthkarScheduleTimes_defaultsToSixAmAndOneHourBeforeMaghribAndSupportsCustom() {
         val timings = AladhanTimings(
             imsak = "04:20",

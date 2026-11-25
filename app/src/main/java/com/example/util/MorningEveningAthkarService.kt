@@ -14,9 +14,15 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class AthkarAudioType(
     val id: String,
@@ -51,6 +57,7 @@ data class AthkarAudioPlaybackState(
 class MorningEveningAthkarService : Service() {
 
     private var mediaPlayer: MediaPlayer? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -167,6 +174,25 @@ class MorningEveningAthkarService : Service() {
             isPlaying = true
         )
 
+        // فحص فعلي للرابط قبل التشغيل: نوع المحتوى + بصمة الملف، ثم التشغيل أو الصوت الاحتياطي المحلي
+        serviceScope.launch {
+            val inspection = RemoteAudioVerifier.inspect(resolved.directPlayUrl)
+            if (!inspection.ok) {
+                Log.w(TAG, "Remote link not verified as audio: ${inspection.detail}; using local fallback")
+                withContext(Dispatchers.Main) {
+                    startLocalFallback(R.raw.athkar_morning)
+                }
+                return@launch
+            }
+            Log.i(TAG, "Remote audio verified: ${inspection.kind.labelAr} (${inspection.detail})")
+            withContext(Dispatchers.Main) {
+                playRemoteMediaPlayer(resolved.directPlayUrl)
+            }
+        }
+    }
+
+    private fun playRemoteMediaPlayer(url: String) {
+        releasePlayer()
         runCatching {
             val player = MediaPlayer().apply {
                 setAudioAttributes(
@@ -175,7 +201,7 @@ class MorningEveningAthkarService : Service() {
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
-                setDataSource(resolved.directPlayUrl)
+                setDataSource(url)
                 setOnPreparedListener { mp ->
                     mp.start()
                 }
@@ -183,15 +209,47 @@ class MorningEveningAthkarService : Service() {
                     stopPlaybackAndSelf()
                 }
                 setOnErrorListener { _, what, extra ->
-                    Log.w(TAG, "Remote audio MediaPlayer error what=$what extra=$extra")
-                    stopPlaybackAndSelf()
+                    Log.w(TAG, "Remote audio MediaPlayer error what=$what extra=$extra; falling back to local audio")
+                    startLocalFallback(R.raw.athkar_morning)
                     true
                 }
                 prepareAsync()
             }
             mediaPlayer = player
         }.onFailure { e ->
-            Log.e(TAG, "Failed to stream remote audio playback", e)
+            Log.e(TAG, "Failed to stream remote audio playback; using local fallback", e)
+            startLocalFallback(R.raw.athkar_morning)
+        }
+    }
+
+    /** صوت احتياطي محلي يضمن سماع التذكير عند تعذّر الرابط البعيد */
+    private fun startLocalFallback(rawResId: Int) {
+        releasePlayer()
+        runCatching {
+            val player = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                resources.openRawResourceFd(rawResId).use { afd ->
+                    setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                }
+                setOnCompletionListener {
+                    stopPlaybackAndSelf()
+                }
+                setOnErrorListener { _, what, extra ->
+                    Log.w(TAG, "Fallback local audio error what=$what extra=$extra")
+                    stopPlaybackAndSelf()
+                    true
+                }
+                prepare()
+                start()
+            }
+            mediaPlayer = player
+        }.onFailure { e ->
+            Log.e(TAG, "Fallback local audio failed", e)
             stopPlaybackAndSelf()
         }
     }
@@ -235,6 +293,7 @@ class MorningEveningAthkarService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        serviceScope.cancel()
         releasePlayer()
         _playbackState.value = AthkarAudioPlaybackState()
     }

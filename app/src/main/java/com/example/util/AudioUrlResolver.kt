@@ -1,18 +1,30 @@
 package com.example.util
-
 import java.util.Locale
 
 data class ResolvedAudioLink(
     val originalUrl: String,
     val directPlayUrl: String,
     val sourceTypeLabel: String,
-    val isValidHttps: Boolean
+    val isValidHttps: Boolean,
+    val likelyDirectAudio: Boolean = false,
+    val isCloud: Boolean = false
 )
 
 object AudioUrlResolver {
-
     private val DRIVE_FILE_REGEX = Regex("drive\\.google\\.com/file/d/([a-zA-Z0-9_-]+)")
     private val DRIVE_ID_REGEX = Regex("[?&]id=([a-zA-Z0-9_-]+)")
+
+    private val AUDIO_EXT_LABELS = linkedMapOf(
+        ".mp3" to "ملف صوت MP3",
+        ".m4a" to "ملف صوت M4A",
+        ".aac" to "ملف صوت AAC",
+        ".ogg" to "ملف صوت OGG",
+        ".opus" to "ملف صوت OPUS",
+        ".wav" to "ملف صوت WAV",
+        ".flac" to "ملف صوت FLAC",
+        ".m3u8" to "بث HLS صوتي",
+        ".m3u" to "قائمة تشغيل صوتي M3U"
+    )
 
     fun resolve(rawUrl: String): ResolvedAudioLink {
         val trimmed = rawUrl.trim()
@@ -25,7 +37,6 @@ object AudioUrlResolver {
                 isValidHttps = false
             )
         }
-
         val lower = trimmed.lowercase(Locale.US)
 
         if (lower.contains("drive.google.com") || lower.contains("docs.google.com")) {
@@ -36,7 +47,9 @@ object AudioUrlResolver {
                     originalUrl = trimmed,
                     directPlayUrl = "https://drive.google.com/uc?export=download&id=$fileMatch",
                     sourceTypeLabel = "Google Drive صوت",
-                    isValidHttps = true
+                    isValidHttps = true,
+                    likelyDirectAudio = true,
+                    isCloud = true
                 )
             }
         }
@@ -52,29 +65,23 @@ object AudioUrlResolver {
                 originalUrl = trimmed,
                 directPlayUrl = directDropbox,
                 sourceTypeLabel = "Dropbox صوت",
-                isValidHttps = true
+                isValidHttps = true,
+                likelyDirectAudio = true,
+                isCloud = true
             )
         }
 
-        val detectedExt = listOf(".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".flac")
-            .firstOrNull { lower.substringBefore("?").endsWith(it) }
-
-        val label = when (detectedExt) {
-            ".mp3" -> "ملف صوت MP3"
-            ".m4a" -> "ملف صوت M4A"
-            ".aac" -> "ملف صوت AAC"
-            ".ogg" -> "ملف صوت OGG"
-            ".opus" -> "ملف صوت OPUS"
-            ".wav" -> "ملف صوت WAV"
-            ".flac" -> "ملف صوت FLAC"
-            else -> "بث صوتي مباشر"
-        }
+        val cleanPath = lower.substringBefore("?").substringBefore("#")
+        val detectedExt = AUDIO_EXT_LABELS.entries.firstOrNull { (ext, _) -> cleanPath.endsWith(ext) }
+        val label = detectedExt?.value ?: "بث صوتي مباشر"
 
         return ResolvedAudioLink(
             originalUrl = trimmed,
             directPlayUrl = trimmed,
             sourceTypeLabel = label,
-            isValidHttps = true
+            isValidHttps = true,
+            likelyDirectAudio = detectedExt != null,
+            isCloud = false
         )
     }
 }
