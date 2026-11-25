@@ -123,14 +123,23 @@ data class BroadcastReminder(
     val audioUrl: String? = null,
     val normalizedAudioUrl: String? = null,
     val audioSourceType: String? = null,
+    val audioStorageMode: String? = null, // "url" | "firestore_chunks"
+    val audioAssetId: String? = null,
+    val audioChunkCount: Long? = null,
+    val audioFileExt: String? = null,
+    val audioFileName: String? = null,
+    val audioMimeType: String? = null,
     @field:JvmField val isActive: Boolean = true,
     val triggerNonce: Long = 1L,
     val expiresAtMillis: Long? = null,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 ) {
+    val isUploadedAudio: Boolean
+        get() = !audioAssetId.isNullOrBlank() && (audioChunkCount ?: 0L) > 0L
+
     val isAudio: Boolean
-        get() = reminderKind == "audio" && !effectiveAudioUrl.isNullOrBlank()
+        get() = reminderKind == "audio" && (!effectiveAudioUrl.isNullOrBlank() || isUploadedAudio)
 
     val isPinned: Boolean
         get() = persistenceMode == "pinned"

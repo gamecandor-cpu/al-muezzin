@@ -50,7 +50,11 @@ class MuezzinMessagingService : FirebaseMessagingService() {
             ?: "تنبيه من تطبيق المؤذن"
 
         val audioUrl = data["audioUrl"] ?: data["normalizedAudioUrl"]
-        val playAudio = data["playAudio"]?.equals("true", ignoreCase = true) ?: !audioUrl.isNullOrBlank()
+        val audioAssetId = data["audioAssetId"]?.takeIf { it.isNotBlank() }
+        val audioChunkCount = data["audioChunkCount"]?.toIntOrNull() ?: 0
+        val audioFileExt = data["audioFileExt"]?.takeIf { it.isNotBlank() }
+        val hasAudioTarget = !audioUrl.isNullOrBlank() || (!audioAssetId.isNullOrBlank() && audioChunkCount > 0)
+        val playAudio = data["playAudio"]?.equals("true", ignoreCase = true) ?: hasAudioTarget
 
         when (data["type"]) {
             "athkar_morning" -> {
@@ -85,13 +89,16 @@ class MuezzinMessagingService : FirebaseMessagingService() {
                 }
 
                 if (shouldDeliverImmediate) {
-                    if (playAudio && !audioUrl.isNullOrBlank()) {
+                    if (playAudio && hasAudioTarget) {
                         MorningEveningAthkarService.startRemote(
                             context = applicationContext,
                             title = title,
                             body = body,
-                            audioUrl = audioUrl,
-                            remoteId = reminderId
+                            audioUrl = audioUrl.orEmpty(),
+                            remoteId = reminderId,
+                            audioAssetId = audioAssetId,
+                            audioChunkCount = audioChunkCount,
+                            audioFileExt = audioFileExt
                         )
                     }
                     PrayerNotificationReceiver.showCloudPushNotification(
@@ -99,7 +106,10 @@ class MuezzinMessagingService : FirebaseMessagingService() {
                         title = title,
                         body = body,
                         reminderId = reminderId,
-                        audioUrl = audioUrl
+                        audioUrl = audioUrl,
+                        audioAssetId = audioAssetId,
+                        audioChunkCount = audioChunkCount,
+                        audioFileExt = audioFileExt
                     )
                 }
             }

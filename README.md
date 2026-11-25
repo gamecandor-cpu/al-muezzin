@@ -11,9 +11,9 @@
 - `index.html` — نسخة جذرية من لوحة الإدارة (تُقدَّم مباشرة على GitHub Pages).
 - `موقع ادارة التطبيق/index.html` — الملف الأصلي للوحة، مع `start-server.mjs` للتشغيل المحلي على المنفذ 5050.
 - `app/` — تطبيق Android (Kotlin / Jetpack Compose): مواقيت الصلاة، الأذان، القبلة، المسبحة، الأذكار، رمضان.
-- `AlMuezzin.apk` — حزمة تثبيت التطبيق الجاهزة.
+- `al-muezzin.apk` — حزمة تثبيت التطبيق الجاهزة.
 - `public/assets/` — صور الموقع.
-- `firebase.json` و`firestore.rules` و`firestore.test.js` — إعداد Firebase (المشروع `gen-lang-client-0269726559`).
+- `firebase.json` و`firestore.rules` و`firestore.test.js` — إعداد Firebase (المشروع `gen-lang-client-0088673365`).
 
 ## ملاحظة تسجيل الدخول في Firebase
 عند فتح الموقع من نطاق GitHub Pages، يجب إضافة النطاق `gamecandor-cpu.github.io` في:

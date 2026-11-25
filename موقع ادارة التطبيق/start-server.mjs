@@ -9,17 +9,18 @@ const PROJECT_ROOT = path.resolve(__dirname, "..");
 const BUILD_APK_PATH = path.join(PROJECT_ROOT, "app", "build", "outputs", "apk", "debug", "app-debug.apk");
 const ROOT_APK_PATH = path.join(PROJECT_ROOT, "al-muezzin.apk");
 function resolveApkPath() {
-  if (fs.existsSync(ROOT_APK_PATH)) return ROOT_APK_PATH;
-  if (fs.existsSync(BUILD_APK_PATH)) return BUILD_APK_PATH;
-  return null;
+  const candidates = [ROOT_APK_PATH, BUILD_APK_PATH].filter((p) => fs.existsSync(p));
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  return candidates[0];
 }
 const PORT = Number(process.env.PORT || 5050);
 
 const APP_LINK_META = {
   appName: "المؤذن | Muezzin",
   applicationId: "com.aistudio.almuezzin.qrwkpm",
-  firebaseProjectId: "gen-lang-client-0269726559",
-  firestoreDatabaseId: "ai-studio-android-3a090149-baae-41dd-a16b-0031efcd6946",
+  firebaseProjectId: "gen-lang-client-0088673365",
+  firestoreDatabaseId: "ai-studio-android-almuezzi-66d87300-2690-43ed-b091-b03d839d2028",
   collection: "broadcast_reminders",
   fcmTopics: [
     "muezzin_announcements",

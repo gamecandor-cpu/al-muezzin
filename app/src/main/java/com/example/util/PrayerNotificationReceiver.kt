@@ -26,6 +26,10 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
+            ACTION_MIDNIGHT_RESCHEDULE -> {
+                PrayerNotificationReceiver.ensureAllChannels(context)
+                PrayerNotificationScheduler(context).rescheduleFromCache()
+            }
             ACTION_OCCASION_DAILY_CHECK -> {
                 val scheduler = PrayerNotificationScheduler(context)
                 val todayOccasion = scheduler.resolveCurrentActiveOccasion()
@@ -42,14 +46,13 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
                     } else {
                         AthkarAudioType.EVENING
                     }
-                    val started = MorningEveningAthkarService.start(context, athkarType)
-                    if (!started) {
-                        showCloudPushNotification(
-                            context = context,
-                            title = athkarType.titleAr,
-                            body = athkarType.subtitleAr
-                        )
-                    }
+                    MorningEveningAthkarService.start(context, athkarType)
+                    showCloudPushNotification(
+                        context = context,
+                        title = athkarType.titleAr,
+                        body = athkarType.subtitleAr,
+                        reminderId = "athkar_${athkarType.id}"
+                    )
                 }
                 scheduler.rescheduleFromCache()
             }
@@ -59,32 +62,61 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
                 val body = intent.getStringExtra(EXTRA_REMINDER_BODY).orEmpty().ifBlank { title }
                 val kind = intent.getStringExtra(EXTRA_REMINDER_KIND).orEmpty()
                 val audioUrl = intent.getStringExtra(EXTRA_REMINDER_AUDIO_URL).orEmpty()
+                val audioAssetId = intent.getStringExtra(EXTRA_REMINDER_AUDIO_ASSET_ID)?.takeIf { it.isNotBlank() }
+                val audioChunkCount = intent.getIntExtra(EXTRA_REMINDER_AUDIO_CHUNK_COUNT, 0)
+                val audioFileExt = intent.getStringExtra(EXTRA_REMINDER_AUDIO_FILE_EXT)?.takeIf { it.isNotBlank() }
                 val expiresAt = intent.getLongExtra(EXTRA_REMINDER_EXPIRES_AT, 0L)
 
                 if (expiresAt <= 0L || System.currentTimeMillis() <= expiresAt) {
-                    if (kind == "audio" && audioUrl.isNotBlank()) {
+                    if (kind == "audio" && (audioUrl.isNotBlank() || (!audioAssetId.isNullOrBlank() && audioChunkCount > 0))) {
                         MorningEveningAthkarService.startRemote(
                             context = context,
                             title = title,
                             body = body,
                             audioUrl = audioUrl,
-                            remoteId = reminderId.ifBlank { null }
+                            remoteId = reminderId.ifBlank { null },
+                            audioAssetId = audioAssetId,
+                            audioChunkCount = audioChunkCount,
+                            audioFileExt = audioFileExt
                         )
                     }
-                    showCloudPushNotification(context, title, body)
+                    showCloudPushNotification(
+                        context = context,
+                        title = title,
+                        body = body,
+                        reminderId = reminderId.ifBlank { null },
+                        audioUrl = audioUrl.ifBlank { null },
+                        audioAssetId = audioAssetId,
+                        audioChunkCount = audioChunkCount,
+                        audioFileExt = audioFileExt
+                    )
                 }
                 PrayerNotificationScheduler(context).rescheduleRemoteRemindersFromCache()
             }
             else -> {
+                val scheduler = PrayerNotificationScheduler(context)
                 val prayerKey = intent.getStringExtra(EXTRA_PRAYER_KEY) ?: PrayerType.FAJR.apiKey
                 val prayerNameAr = intent.getStringExtra(EXTRA_PRAYER_NAME_AR) ?: "الصلاة"
                 val cityName = intent.getStringExtra(EXTRA_CITY_NAME).orEmpty()
                 val formattedTime = intent.getStringExtra(EXTRA_TIME_LABEL).orEmpty()
                 val voiceId = intent.getStringExtra(EXTRA_VOICE_ID) ?: MuezzinVoice.NASSER_AL_QUTAMI.id
                 val athanEnabled = intent.getBooleanExtra(EXTRA_ATHAN_ENABLED, true)
+                val playModeId = intent.getStringExtra(EXTRA_ATHAN_PLAY_MODE_ID)
 
                 if (athanEnabled) {
                     val voice = MuezzinVoice.fromId(voiceId)
+                    val playMode = if (!playModeId.isNullOrBlank()) {
+                        com.example.data.model.AthanPlayMode.fromId(playModeId)
+                    } else {
+                        scheduler.getCachedAthanPlayMode()
+                    }
+                    val fgsStarted = MorningEveningAthkarService.startAthan(
+                        context = context,
+                        prayerNameAr = prayerNameAr,
+                        cityName = cityName,
+                        voice = voice,
+                        playMode = playMode
+                    )
                     showPrayerNotification(
                         context = context,
                         prayerKey = prayerKey,
@@ -92,12 +124,12 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
                         cityName = cityName,
                         formattedTime = formattedTime,
                         voice = voice,
-                        withChannelSound = true
+                        withChannelSound = !fgsStarted
                     )
                 }
 
                 // Re-schedule tomorrow's prayers so alarms stay continuous in background
-                PrayerNotificationScheduler(context).rescheduleFromCache()
+                scheduler.rescheduleFromCache()
             }
         }
     }
@@ -107,6 +139,7 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
         const val ACTION_OCCASION_DAILY_CHECK = "com.example.ACTION_OCCASION_DAILY_CHECK"
         const val ACTION_ATHKAR_MORNING = "com.example.ACTION_ATHKAR_MORNING"
         const val ACTION_ATHKAR_EVENING = "com.example.ACTION_ATHKAR_EVENING"
+        const val ACTION_MIDNIGHT_RESCHEDULE = "com.example.ACTION_MIDNIGHT_RESCHEDULE"
         const val ACTION_REMOTE_REMINDER_ALARM = "com.example.ACTION_REMOTE_REMINDER_ALARM"
         const val ACTION_OPEN_REMOTE_REMINDER = "com.example.ACTION_OPEN_REMOTE_REMINDER"
 
@@ -116,11 +149,15 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
         const val EXTRA_TIME_LABEL = "extra_time_label"
         const val EXTRA_VOICE_ID = "extra_voice_id"
         const val EXTRA_ATHAN_ENABLED = "extra_athan_enabled"
+        const val EXTRA_ATHAN_PLAY_MODE_ID = "extra_athan_play_mode_id"
         const val EXTRA_REMINDER_ID = "extra_reminder_id"
         const val EXTRA_REMINDER_TITLE = "extra_reminder_title"
         const val EXTRA_REMINDER_BODY = "extra_reminder_body"
         const val EXTRA_REMINDER_KIND = "extra_reminder_kind"
         const val EXTRA_REMINDER_AUDIO_URL = "extra_reminder_audio_url"
+        const val EXTRA_REMINDER_AUDIO_ASSET_ID = "extra_reminder_audio_asset_id"
+        const val EXTRA_REMINDER_AUDIO_CHUNK_COUNT = "extra_reminder_audio_chunk_count"
+        const val EXTRA_REMINDER_AUDIO_FILE_EXT = "extra_reminder_audio_file_ext"
         const val EXTRA_REMINDER_EXPIRES_AT = "extra_reminder_expires_at"
 
         private const val CHANNEL_PRAYER_VISUAL = "prayer_visual_alerts_channel"
@@ -144,7 +181,7 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
             val manager = context.getSystemService(NotificationManager::class.java) ?: return
 
-            // Visual heads-up prayer channel (used when AthanPlayer handles full playback in-app)
+            // Visual heads-up prayer channel (used when Foreground Service or in-app player plays full Athan)
             val visualChannel = NotificationChannel(
                 CHANNEL_PRAYER_VISUAL,
                 "إشعارات مواقيت الصلاة",
@@ -153,12 +190,14 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
                 description = "إشعارات دخول وقت الصلاة عند استخدام التطبيق"
                 setSound(null, null)
                 enableVibration(true)
+                enableLights(true)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
             manager.createNotificationChannel(visualChannel)
 
-            // Per-voice Athan channels for background prayer notifications with real Athan sound
+            // Per-voice Athan channels for background prayer notifications with real Athan sound fallback
             val athanAttrs = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                .setUsage(AudioAttributes.USAGE_ALARM)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
             MuezzinVoice.entries.forEach { voice ->
@@ -173,6 +212,8 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
                     description = "تنبيه الأذان بصوت ${voice.arabicLabel}"
                     setSound(soundUri, athanAttrs)
                     enableVibration(true)
+                    enableLights(true)
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
                 }
                 manager.createNotificationChannel(channel)
             }
@@ -191,10 +232,12 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
                 description = "إشعارات وتهاني المناسبات الدينية والأعياد"
                 setSound(defaultSound, occasionAttrs)
                 enableVibration(true)
+                enableLights(true)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
             manager.createNotificationChannel(occasionChannel)
 
-            // Firebase Cloud Messaging channel
+            // Firebase Cloud Messaging & Athkar channel
             val fcmChannel = NotificationChannel(
                 CHANNEL_CLOUD_PUSH,
                 "الإشعارات السحابية وتنبيهات الأذكار",
@@ -203,6 +246,8 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
                 description = "رسائل وإشعارات Firebase الفورية وتنبيهات الأذكار"
                 setSound(defaultSound, occasionAttrs)
                 enableVibration(true)
+                enableLights(true)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
             manager.createNotificationChannel(fcmChannel)
         }
@@ -305,14 +350,18 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
             title: String,
             body: String,
             reminderId: String? = null,
-            audioUrl: String? = null
+            audioUrl: String? = null,
+            audioAssetId: String? = null,
+            audioChunkCount: Int = 0,
+            audioFileExt: String? = null
         ) {
             ensureAllChannels(context)
             if (!hasNotificationPermission(context)) return
 
+            val hasAudioTarget = !audioUrl.isNullOrBlank() || (!audioAssetId.isNullOrBlank() && audioChunkCount > 0)
             val uniqueKey = reminderId?.takeIf { it.isNotBlank() } ?: title
             val launchIntent = Intent(context, MainActivity::class.java).apply {
-                action = if (!reminderId.isNullOrBlank() || !audioUrl.isNullOrBlank()) {
+                action = if (!reminderId.isNullOrBlank() || hasAudioTarget) {
                     ACTION_OPEN_REMOTE_REMINDER
                 } else {
                     Intent.ACTION_MAIN
@@ -322,6 +371,11 @@ class PrayerNotificationReceiver : BroadcastReceiver() {
                 putExtra(EXTRA_REMINDER_TITLE, title)
                 putExtra(EXTRA_REMINDER_BODY, body)
                 if (!audioUrl.isNullOrBlank()) putExtra(EXTRA_REMINDER_AUDIO_URL, audioUrl)
+                if (!audioAssetId.isNullOrBlank()) {
+                    putExtra(EXTRA_REMINDER_AUDIO_ASSET_ID, audioAssetId)
+                    putExtra(EXTRA_REMINDER_AUDIO_CHUNK_COUNT, audioChunkCount)
+                    if (!audioFileExt.isNullOrBlank()) putExtra(EXTRA_REMINDER_AUDIO_FILE_EXT, audioFileExt)
+                }
             }
             val contentIntent = PendingIntent.getActivity(
                 context,

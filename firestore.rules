@@ -62,6 +62,13 @@ service cloud.firestore {
              (!('audioUrl' in data) || (data.audioUrl is string && data.audioUrl.size() > 0 && data.audioUrl.size() <= 1024 && data.audioUrl.matches('^https://.*'))) &&
              (!('normalizedAudioUrl' in data) || (data.normalizedAudioUrl is string && data.normalizedAudioUrl.size() > 0 && data.normalizedAudioUrl.size() <= 1024 && data.normalizedAudioUrl.matches('^https://.*'))) &&
              (!('audioSourceType' in data) || (data.audioSourceType is string && data.audioSourceType.size() <= 64)) &&
+             (!('audioStorageMode' in data) || (data.audioStorageMode in ['url', 'firestore_chunks'])) &&
+             (!('audioAssetId' in data) || isValidId(data.audioAssetId)) &&
+             (!('audioChunkCount' in data) || (data.audioChunkCount is int && data.audioChunkCount >= 1 && data.audioChunkCount <= 30)) &&
+             (!('audioFileExt' in data) || (data.audioFileExt is string && data.audioFileExt.size() >= 1 && data.audioFileExt.size() <= 12 && data.audioFileExt.matches('^[a-z0-9]+$'))) &&
+             (!('audioFileName' in data) || (data.audioFileName is string && data.audioFileName.size() > 0 && data.audioFileName.size() <= 180)) &&
+             (!('audioMimeType' in data) || (data.audioMimeType is string && data.audioMimeType.size() > 0 && data.audioMimeType.size() <= 80 && (data.audioMimeType.matches('^audio/.*') || data.audioMimeType == 'application/ogg'))) &&
+             (!('audioStorageMode' in data) || data.audioStorageMode != 'firestore_chunks' || ('audioAssetId' in data && 'audioChunkCount' in data)) &&
              data.isActive is bool &&
              data.triggerNonce is int &&
              data.triggerNonce >= 1 &&
@@ -71,6 +78,52 @@ service cloud.firestore {
              data.createdAt <= request.time &&
              data.updatedAt is timestamp &&
              data.updatedAt <= request.time;
+    }
+
+    function isValidBroadcastAudioAsset(data) {
+      return data.authorUid is string &&
+             data.authorUid.size() > 0 &&
+             data.authorUid.size() <= 128 &&
+             data.fileName is string &&
+             data.fileName.size() > 0 &&
+             data.fileName.size() <= 180 &&
+             data.mimeType is string &&
+             data.mimeType.size() > 0 &&
+             data.mimeType.size() <= 80 &&
+             (data.mimeType.matches('^audio/.*') || data.mimeType == 'application/ogg') &&
+             data.fileExt is string &&
+             data.fileExt.size() >= 1 &&
+             data.fileExt.size() <= 12 &&
+             data.fileExt.matches('^[a-z0-9]+$') &&
+             data.totalBytes is int &&
+             data.totalBytes > 0 &&
+             data.totalBytes <= 10485760 &&
+             data.chunkCount is int &&
+             data.chunkCount >= 1 &&
+             data.chunkCount <= 30 &&
+             data.durationSec is int &&
+             data.durationSec >= 0 &&
+             data.durationSec <= 3600 &&
+             data.isReady is bool &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time &&
+             data.updatedAt is timestamp &&
+             data.updatedAt <= request.time;
+    }
+
+    function isValidBroadcastAudioChunk(data) {
+      return data.authorUid is string &&
+             data.authorUid.size() > 0 &&
+             data.authorUid.size() <= 128 &&
+             isValidId(data.assetId) &&
+             data.chunkIndex is int &&
+             data.chunkIndex >= 0 &&
+             data.chunkIndex < 30 &&
+             data.dataBase64 is string &&
+             data.dataBase64.size() > 0 &&
+             data.dataBase64.size() <= 700000 &&
+             data.createdAt is timestamp &&
+             data.createdAt <= request.time;
     }
 
     match /users/{userId} {
@@ -124,6 +177,8 @@ service cloud.firestore {
                          'authorUid', 'title', 'body', 'reminderKind',
                          'persistenceMode', 'deliveryMode', 'scheduledTimeHHmm',
                          'audioUrl', 'normalizedAudioUrl', 'audioSourceType',
+                         'audioStorageMode', 'audioAssetId', 'audioChunkCount',
+                         'audioFileExt', 'audioFileName', 'audioMimeType',
                          'isActive', 'triggerNonce', 'expiresAtMillis',
                          'createdAt', 'updatedAt'
                        ]) &&
@@ -139,11 +194,67 @@ service cloud.firestore {
                          'title', 'body', 'reminderKind',
                          'persistenceMode', 'deliveryMode', 'scheduledTimeHHmm',
                          'audioUrl', 'normalizedAudioUrl', 'audioSourceType',
+                         'audioStorageMode', 'audioAssetId', 'audioChunkCount',
+                         'audioFileExt', 'audioFileName', 'audioMimeType',
                          'isActive', 'triggerNonce', 'expiresAtMillis',
                          'updatedAt'
                        ]);
 
       allow delete: if isSignedIn() && isValidId(reminderId) && existing().authorUid == request.auth.uid;
+    }
+
+    match /broadcast_audio_assets/{assetId} {
+      // Public non-PII broadcast audio metadata readable by app clients.
+      allow get, list: if true;
+
+      allow create: if isSignedIn() &&
+                       isValidId(assetId) &&
+                       incoming().authorUid == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'authorUid', 'fileName', 'mimeType', 'fileExt',
+                         'totalBytes', 'chunkCount', 'durationSec', 'isReady',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'authorUid', 'fileName', 'mimeType', 'fileExt',
+                         'totalBytes', 'chunkCount', 'durationSec', 'isReady',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidBroadcastAudioAsset(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(assetId) &&
+                       existing().authorUid == request.auth.uid &&
+                       incoming().authorUid == existing().authorUid &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().totalBytes == existing().totalBytes &&
+                       incoming().chunkCount == existing().chunkCount &&
+                       isValidBroadcastAudioAsset(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'isReady', 'durationSec', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && isValidId(assetId) && existing().authorUid == request.auth.uid;
+    }
+
+    match /broadcast_audio_chunks/{chunkId} {
+      // Public non-PII audio binary chunks readable by app clients for immediate playback.
+      allow get, list: if true;
+
+      allow create: if isSignedIn() &&
+                       isValidId(chunkId) &&
+                       incoming().authorUid == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'authorUid', 'assetId', 'chunkIndex', 'dataBase64', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'authorUid', 'assetId', 'chunkIndex', 'dataBase64', 'createdAt'
+                       ]) &&
+                       isValidBroadcastAudioChunk(incoming());
+
+      allow update: if false;
+
+      allow delete: if isSignedIn() && isValidId(chunkId) && existing().authorUid == request.auth.uid;
     }
   }
 }

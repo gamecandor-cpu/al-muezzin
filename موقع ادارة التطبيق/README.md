@@ -10,7 +10,7 @@
 
 ## الرفع على الاستضافة أو التشغيل محلياً
 1. ارفع ملف **`موقع ادارة التطبيق/index.html`** مباشرة إلى استضافتك (أو استخدم `firebase deploy --only hosting`).
-2. إذا رفعته على نطاق استضافة خاص بك، أضف اسم النطاق في **Firebase Console → Authentication → Settings → Authorized domains** للمشروع `gen-lang-client-0269726559` لتفعيل تسجيل الدخول عبر Google.
+2. إذا رفعته على نطاق استضافة خاص بك، أضف اسم النطاق في **Firebase Console → Authentication → Settings → Authorized domains** للمشروع `gen-lang-client-0088673365` لتفعيل تسجيل الدخول عبر Google.
 3. للتجربة محلياً:
 ```bash
 node "موقع ادارة التطبيق/start-server.mjs"

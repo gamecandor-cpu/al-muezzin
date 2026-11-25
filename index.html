@@ -593,6 +593,52 @@
       font-weight: 700;
       max-width: 90vw;
     }
+
+    .upload-dropzone {
+      border: 1.5px dashed var(--amber-gold);
+      border-radius: 14px;
+      padding: 18px 14px;
+      text-align: center;
+      background: rgba(13, 22, 41, 0.85);
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      display: grid;
+      gap: 6px;
+      justify-items: center;
+      margin-top: 8px;
+    }
+
+    .upload-dropzone:hover,
+    .upload-dropzone.dragover {
+      border-color: var(--success);
+      background: rgba(245, 185, 66, 0.1);
+    }
+
+    .upload-status-card {
+      background: var(--bg-deep);
+      border: 1px solid var(--border-navy);
+      border-radius: 12px;
+      padding: 11px 13px;
+      margin-top: 8px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-navy);
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--amber-gold), var(--success));
+      transition: width 0.2s ease;
+    }
   </style>
 </head>
 <body>
@@ -633,7 +679,7 @@
           <span class="badge" dir="ltr">com.aistudio.almuezzin.qrwkpm</span>
         </div>
         <div id="apkLinkMeta" style="font-size: 0.78rem; color: var(--silver-text);">
-          Firebase: <code dir="ltr" style="color: var(--ice-white);">gen-lang-client-0269726559</code> • Firestore + FCM (<code dir="ltr" style="color: var(--warm-highlight);">broadcast_reminders</code>) — أي صوت أو تذكير يتم دفعه هنا يصل للتطبيق فوراً.
+          Firebase: <code dir="ltr" style="color: var(--ice-white);">gen-lang-client-0088673365</code> • Firestore + FCM (<code dir="ltr" style="color: var(--warm-highlight);">broadcast_reminders</code>) — المزامنة التلقائية مفعّلة في التطبيق وأي صوت أو تذكير يتم دفعه يصل فوراً.
         </div>
       </div>
       <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
@@ -682,7 +728,7 @@
           <div class="form-group">
             <label>نوع التذكير</label>
             <div class="segmented" id="kindSegmented">
-              <button type="button" class="seg-btn active" data-kind="audio">🔊 تذكير صوتي (رابط)</button>
+              <button type="button" class="seg-btn active" data-kind="audio">🔊 تذكير صوتي (ملف أو رابط)</button>
               <button type="button" class="seg-btn" data-kind="text">📝 تذكير نصي</button>
             </div>
           </div>
@@ -697,18 +743,49 @@
             <textarea id="bodyInput" maxlength="1000" placeholder="اكتب نص الذكر أو الرسالة للمستخدمين..."></textarea>
           </div>
 
-          <!-- Direct Audio Link + Webpage Audio Extraction + Built-in Player -->
+          <!-- Device Audio Upload + Direct Audio Link / Webpage Extraction + Built-in Player -->
           <div id="audioSection" class="form-group">
-            <label for="audioUrlInput">رابط الصوت المباشر أو رابط موقع يحتوي على صوت (MP3 / M4A / بث مباشر / Drive / Dropbox / صفحة ويب)</label>
-            <div class="form-actions-row">
-              <input id="audioUrlInput" type="url" dir="ltr" placeholder="الصق رابط ملف صوت مباشر أو رابط صفحة تحتوي صوتاً (https://...)" />
-              <button id="scanSiteBtn" type="button" class="btn btn-gold btn-sm" style="white-space: nowrap;">🔍 التعرف على الصوت</button>
+            <label>مصدر المقطع الصوتي</label>
+            <div class="segmented" id="audioSourceSegmented">
+              <button type="button" class="seg-btn active" data-audiosrc="upload">📁 رفع مقطع صوتي من جهازي</button>
+              <button type="button" class="seg-btn" data-audiosrc="url">🔗 رابط صوت أو صفحة موقع</button>
             </div>
-            <small id="scanStatusText" style="display:block; margin-top:6px; color: var(--silver-text); font-size: 0.76rem;">
-              عند لصق رابط صوت مباشر (حتى لو لم ينتهِ بـ .mp3) أو رابط صفحة موقع فيها صوت، سيتعرف الموقع عليه تلقائياً ويعرضه للتشغيل قبل دفعه للتطبيق.
-            </small>
 
-            <div id="discoveredTracksBox" class="track-results-box hidden"></div>
+            <div id="uploadAudioPanel">
+              <input id="audioFileInput" type="file" accept="audio/*,.mp3,.m4a,.aac,.ogg,.opus,.wav,.flac" class="hidden" />
+              <div id="uploadDropzone" class="upload-dropzone" role="button" tabindex="0">
+                <strong style="color: var(--amber-gold); font-size: 0.94rem;">📂 اضغط لاختيار مقطع صوتي من جهازك أو اسحبه هنا</strong>
+                <span style="color: var(--silver-text); font-size: 0.78rem;">
+                  يدعم MP3 / M4A / AAC / WAV / OGG / FLAC (الحد الأقصى 10 ميجابايت) — يُرفع للموقع ويشتغل عند جميع المستخدمين فور الضغط على «دفع»
+                </span>
+              </div>
+
+              <div id="uploadStatusCard" class="upload-status-card hidden">
+                <div class="audio-meta">
+                  <span id="uploadedFileNameLabel" style="font-weight: 700; color: var(--ice-white); word-break: break-word;"></span>
+                  <button id="clearUploadedFileBtn" type="button" class="btn btn-outline btn-sm">✖️ تغيير الملف</button>
+                </div>
+                <div id="uploadProgressTrack" class="progress-track">
+                  <div id="uploadProgressFill" class="progress-fill"></div>
+                </div>
+                <div class="audio-meta">
+                  <span id="uploadProgressText" style="font-size: 0.78rem; color: var(--warm-highlight);">جاهز للرفع...</span>
+                  <button id="uploadSignInResumeBtn" type="button" class="btn btn-gold btn-sm hidden">🔐 سجّل الدخول بـ Google لإتمام التحميل</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="urlAudioPanel" class="hidden" style="margin-top: 8px;">
+              <label for="audioUrlInput">رابط الصوت المباشر أو رابط موقع يحتوي على صوت (MP3 / M4A / بث مباشر / Drive / Dropbox / صفحة ويب)</label>
+              <div class="form-actions-row">
+                <input id="audioUrlInput" type="url" dir="ltr" placeholder="الصق رابط ملف صوت مباشر أو رابط صفحة تحتوي صوتاً (https://...)" />
+                <button id="scanSiteBtn" type="button" class="btn btn-gold btn-sm" style="white-space: nowrap;">🔍 التعرف على الصوت</button>
+              </div>
+              <small id="scanStatusText" style="display:block; margin-top:6px; color: var(--silver-text); font-size: 0.76rem;">
+                عند لصق رابط صوت مباشر (حتى لو لم ينتهِ بـ .mp3) أو رابط صفحة موقع فيها صوت، سيتعرف الموقع عليه تلقائياً ويعرضه للتشغيل قبل دفعه للتطبيق.
+              </small>
+              <div id="discoveredTracksBox" class="track-results-box hidden"></div>
+            </div>
 
             <div id="audioPreviewBox" class="audio-preview-box hidden">
               <div class="audio-meta">
@@ -717,8 +794,8 @@
               </div>
               <span id="normalizedUrlPreview" style="color: var(--silver-text); font-size: 0.75rem; direction: ltr; word-break: break-all;"></span>
               <audio id="adminAudioPlayer" controls preload="metadata"></audio>
-              <small style="color: var(--silver-text); font-size: 0.74rem;">
-                ملاحظة لروابط Google Drive: تأكد أن مشاركة الملف مضبوطة على «أي شخص لديه الرابط» ليعمل في الموقع والتطبيق.
+              <small id="audioPreviewHint" style="color: var(--silver-text); font-size: 0.74rem;">
+                بعد المعاينة اضغط «دفع» لإرسال وتشغيل المقطع عند جميع مستخدمي التطبيق بنفس اللحظة.
               </small>
             </div>
           </div>
@@ -763,7 +840,7 @@
 
           <div class="form-actions-row">
             <button id="publishBtn" type="submit" class="btn btn-primary">
-              🚀 حفظ ودفع إلى التطبيق الآن
+              🚀 دفع وتشغيل الصوت الآن عند جميع المستخدمين
             </button>
           </div>
         </form>
@@ -819,6 +896,7 @@
       getFirestore,
       collection,
       doc,
+      getDoc,
       setDoc,
       updateDoc,
       deleteDoc,
@@ -830,20 +908,22 @@
 
     // Connected to the exact Firebase project and Firestore database of المؤذن|Muezzin
     const firebaseConfig = {
-      apiKey: "AIzaSyD5OX9KBhe8S7nz9NujSp5f1LQsLAWz23s",
-      authDomain: "gen-lang-client-0269726559.firebaseapp.com",
-      projectId: "gen-lang-client-0269726559",
-      storageBucket: "gen-lang-client-0269726559.firebasestorage.app",
-      messagingSenderId: "786771280104",
-      appId: "1:786771280104:web:almuezzin_admin_portal"
+      apiKey: "AIzaSyBM_epIfQZZOHkMonZkHN740aKsxMTJhpc",
+      authDomain: "gen-lang-client-0088673365.firebaseapp.com",
+      projectId: "gen-lang-client-0088673365",
+      storageBucket: "gen-lang-client-0088673365.firebasestorage.app",
+      messagingSenderId: "273212673277",
+      appId: "1:273212673277:web:almuezzin_admin_portal"
     };
 
-    const FIRESTORE_DATABASE_ID = "ai-studio-android-3a090149-baae-41dd-a16b-0031efcd6946";
+    const FIRESTORE_DATABASE_ID = "ai-studio-android-almuezzi-66d87300-2690-43ed-b091-b03d839d2028";
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app, FIRESTORE_DATABASE_ID);
     const remindersCol = collection(db, "broadcast_reminders");
+    const assetsCol = collection(db, "broadcast_audio_assets");
+    const chunksCol = collection(db, "broadcast_audio_chunks");
 
     // UI Elements
     const protocolWarning = document.getElementById("protocolWarning");
@@ -865,6 +945,16 @@
     const titleInput = document.getElementById("titleInput");
     const bodyInput = document.getElementById("bodyInput");
     const audioSection = document.getElementById("audioSection");
+    const uploadAudioPanel = document.getElementById("uploadAudioPanel");
+    const urlAudioPanel = document.getElementById("urlAudioPanel");
+    const audioFileInput = document.getElementById("audioFileInput");
+    const uploadDropzone = document.getElementById("uploadDropzone");
+    const uploadStatusCard = document.getElementById("uploadStatusCard");
+    const uploadedFileNameLabel = document.getElementById("uploadedFileNameLabel");
+    const clearUploadedFileBtn = document.getElementById("clearUploadedFileBtn");
+    const uploadProgressFill = document.getElementById("uploadProgressFill");
+    const uploadProgressText = document.getElementById("uploadProgressText");
+    const uploadSignInResumeBtn = document.getElementById("uploadSignInResumeBtn");
     const audioUrlInput = document.getElementById("audioUrlInput");
     const scanSiteBtn = document.getElementById("scanSiteBtn");
     const scanStatusText = document.getElementById("scanStatusText");
@@ -874,6 +964,7 @@
     const previewPlayBtn = document.getElementById("previewPlayBtn");
     const normalizedUrlPreview = document.getElementById("normalizedUrlPreview");
     const adminAudioPlayer = document.getElementById("adminAudioPlayer");
+    const audioPreviewHint = document.getElementById("audioPreviewHint");
 
     const expirySection = document.getElementById("expirySection");
     const expiryHoursSelect = document.getElementById("expiryHoursSelect");
@@ -899,6 +990,7 @@
 
     const state = {
       kind: "audio",
+      audioSourceMode: "upload",
       persistence: "pinned",
       delivery: "now",
       editingId: null,
@@ -910,6 +1002,11 @@
       resolvedAudio: null,
       discoveredTracks: [],
       selectedPlayableUrl: "",
+      uploadedAsset: null,
+      pendingUploadFile: null,
+      isUploadingFile: false,
+      uploadToken: 0,
+      portalAssetBlobCache: new Map(),
       dailyTimes: [],
       hasServerApi: false,
       autoAnalyzeTimer: null
@@ -925,10 +1022,36 @@
         if (apkBuildInfoPill) apkBuildInfoPill.textContent = "ملف محلي — شغّل الخادم لربط تحميل APK";
         return;
       }
+      async function tryStaticApkFallback() {
+        try {
+          const headRes = await fetch("./al-muezzin.apk", { method: "HEAD", cache: "no-store" });
+          if (headRes.ok) {
+            const len = Number(headRes.headers.get("content-length") || 0);
+            const sizeMb = len > 0 ? (len / (1024 * 1024)).toFixed(2) : null;
+            if (downloadApkBtn) {
+              downloadApkBtn.href = "./al-muezzin.apk";
+              downloadApkBtn.classList.remove("hidden");
+            }
+            if (apkLinkBadge) apkLinkBadge.textContent = "✓ ملف APK مبني ومربوط مباشرة";
+            if (apkBuildInfoPill) {
+              apkBuildInfoPill.classList.add("live");
+              apkBuildInfoPill.innerHTML = `<span class="dot"></span><span>APK جاهز${sizeMb ? ` (${escapeHtml(sizeMb)} MB)` : ""}</span>`;
+            }
+            return true;
+          }
+        } catch {
+          // ignore static probe error
+        }
+        return false;
+      }
+
       try {
         const res = await fetch("/api/apk-info", { cache: "no-store" });
         if (!res.ok) {
-          if (apkBuildInfoPill) apkBuildInfoPill.textContent = "الاستضافة السحابية • متصل بقاعدة APK";
+          const foundStatic = await tryStaticApkFallback();
+          if (!foundStatic && apkBuildInfoPill) {
+            apkBuildInfoPill.textContent = "الاستضافة السحابية • متصل بقاعدة APK";
+          }
           return;
         }
         const info = await res.json();
@@ -937,7 +1060,7 @@
           apkLinkMeta.innerHTML =
             `Firebase: <code dir="ltr" style="color: var(--ice-white);">${escapeHtml(info.firebaseProjectId)}</code> • ` +
             `قاعدة البيانات: <code dir="ltr" style="color: var(--warm-highlight);">${escapeHtml(info.collection || "broadcast_reminders")}</code> ` +
-            `• FCM Topics: <code dir="ltr">${escapeHtml((info.fcmTopics || []).join(", "))}</code>`;
+            `• المزامنة التلقائية مفعّلة • FCM: <code dir="ltr">${escapeHtml((info.fcmTopics || []).join(", "))}</code>`;
         }
         if (info.available && info.downloadUrl) {
           if (downloadApkBtn) {
@@ -955,7 +1078,10 @@
           if (apkBuildInfoPill) apkBuildInfoPill.textContent = "خادم الإدارة متصل • لم يُبنَ ملف APK بعد";
         }
       } catch {
-        if (apkBuildInfoPill) apkBuildInfoPill.textContent = "وضع الاستضافة السحابية • متصل بقاعدة APK عبر Firestore";
+        const foundStatic = await tryStaticApkFallback();
+        if (!foundStatic && apkBuildInfoPill) {
+          apkBuildInfoPill.textContent = "وضع الاستضافة السحابية • متصل بقاعدة APK عبر Firestore";
+        }
       }
     }
     const serverCheckPromise = initServerAndApkLink();
@@ -975,12 +1101,23 @@
     }
 
     function syncFormSections() {
-      audioSection.classList.toggle("hidden", state.kind !== "audio");
+      const isAudio = state.kind === "audio";
+      const isUpload = state.audioSourceMode === "upload";
+      audioSection.classList.toggle("hidden", !isAudio);
+      uploadAudioPanel.classList.toggle("hidden", !isAudio || !isUpload);
+      urlAudioPanel.classList.toggle("hidden", !isAudio || isUpload);
       expirySection.classList.toggle("hidden", state.persistence !== "temporary");
       scheduleTimeSection.classList.toggle("hidden", state.delivery === "now");
       const showDailyMulti = state.delivery === "daily" && !state.editingId;
       addDailyTimeBtn.classList.toggle("hidden", !showDailyMulti);
       dailyTimesChips.classList.toggle("hidden", !showDailyMulti || state.dailyTimes.length === 0);
+      if (!state.editingId) {
+        if (isAudio && state.delivery === "now") {
+          publishBtn.textContent = "🚀 دفع وتشغيل الصوت الآن عند جميع المستخدمين";
+        } else {
+          publishBtn.textContent = "🚀 حفظ ودفع إلى التطبيق الآن";
+        }
+      }
     }
 
     function renderDailyTimesChips() {
@@ -1729,7 +1866,47 @@
       }
     }
 
+    function syncAudioSourcePreview() {
+      if (state.kind !== "audio") {
+        audioPreviewBox.classList.add("hidden");
+        return;
+      }
+      if (state.audioSourceMode === "upload") {
+        const asset = state.uploadedAsset;
+        const pending = state.pendingUploadFile;
+        if (asset) {
+          audioPreviewBox.classList.remove("hidden");
+          detectedTypeBadge.textContent = asset.isReady
+            ? `✓ مرفوع على الموقع وجاهز للدفع: ${asset.kindLabel || asset.fileExt.toUpperCase()}`
+            : `⏳ جاري التحميل على الموقع...`;
+          detectedTypeBadge.className = asset.isReady ? "badge verified" : "badge warn";
+          normalizedUrlPreview.textContent = `${asset.fileName} (${(asset.totalBytes / (1024 * 1024)).toFixed(2)} MB)`;
+          if (asset.localObjectUrl) {
+            adminAudioPlayer.dataset.directUrl = "";
+            adminAudioPlayer.dataset.fallbackTried = "1";
+            adminAudioPlayer.src = asset.localObjectUrl;
+          } else {
+            loadUploadedAssetIntoPlayer(asset, adminAudioPlayer);
+          }
+          if (audioPreviewHint) {
+            audioPreviewHint.textContent = "تم تحميل الملف على الموقع — اضغط «دفع» لتشغيله عند جميع مستخدمي التطبيق بنفس اللحظة.";
+          }
+        } else if (pending) {
+          audioPreviewBox.classList.remove("hidden");
+          detectedTypeBadge.textContent = "🎧 معاينة محلية (بانتظار التحميل على الموقع)";
+          detectedTypeBadge.className = "badge warn";
+          normalizedUrlPreview.textContent = `${pending.name} (${(pending.size / (1024 * 1024)).toFixed(2)} MB)`;
+        } else {
+          audioPreviewBox.classList.add("hidden");
+          adminAudioPlayer.removeAttribute("src");
+        }
+        return;
+      }
+      updateAudioPreview();
+    }
+
     function updateAudioPreview() {
+      if (state.audioSourceMode !== "url") return;
       const raw = audioUrlInput.value.trim();
       if (!raw) {
         state.resolvedAudio = null;
@@ -1770,7 +1947,6 @@
           }
         });
       } else if (/^https?:\/\//i.test(raw)) {
-        // URL has no .mp3 extension: automatically analyze whether it's a direct audio stream or a webpage with audio
         clearTimeout(state.autoAnalyzeTimer);
         state.autoAnalyzeTimer = setTimeout(() => {
           if (audioUrlInput.value.trim() === raw && !state.selectedPlayableUrl) {
@@ -1783,6 +1959,275 @@
           adminAudioPlayer.removeAttribute("src");
         }
       }
+    }
+
+    const MAX_UPLOAD_AUDIO_BYTES = 10 * 1024 * 1024;
+    const CHUNK_RAW_BYTES = 450000;
+    const EXT_TO_MIME = {
+      mp3: "audio/mpeg",
+      m4a: "audio/mp4",
+      aac: "audio/aac",
+      ogg: "audio/ogg",
+      opus: "audio/ogg",
+      wav: "audio/wav",
+      flac: "audio/flac",
+      webm: "audio/webm"
+    };
+    const SNIFF_TO_EXT = {
+      "MP3": "mp3",
+      "M4A/AAC": "m4a",
+      "AAC": "aac",
+      "OGG/OPUS": "ogg",
+      "WAV": "wav",
+      "FLAC": "flac"
+    };
+
+    function uint8ToBase64(uint8) {
+      let binary = "";
+      const sliceSize = 0x8000;
+      for (let i = 0; i < uint8.length; i += sliceSize) {
+        binary += String.fromCharCode.apply(null, uint8.subarray(i, i + sliceSize));
+      }
+      return btoa(binary);
+    }
+
+    function base64ToUint8(b64) {
+      const bin = atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) {
+        out[i] = bin.charCodeAt(i);
+      }
+      return out;
+    }
+
+    async function fetchUploadedAudioBlobUrl(assetId, chunkCount, mimeType) {
+      if (state.portalAssetBlobCache.has(assetId)) {
+        return state.portalAssetBlobCache.get(assetId);
+      }
+      const indices = Array.from({ length: chunkCount }, (_, i) => i);
+      const byteArrays = await Promise.all(
+        indices.map(async (idx) => {
+          const snap = await getDoc(doc(chunksCol, `${assetId}_${idx}`));
+          if (!snap.exists()) throw new Error(`الجزء ${idx} غير موجود`);
+          return base64ToUint8(snap.data().dataBase64);
+        })
+      );
+      const blob = new Blob(byteArrays, { type: mimeType || "audio/mpeg" });
+      const blobUrl = URL.createObjectURL(blob);
+      state.portalAssetBlobCache.set(assetId, blobUrl);
+      return blobUrl;
+    }
+
+    async function loadUploadedAssetIntoPlayer(asset, playerEl) {
+      try {
+        const blobUrl = await fetchUploadedAudioBlobUrl(
+          asset.audioAssetId || asset.assetId,
+          Number(asset.audioChunkCount || asset.chunkCount),
+          asset.audioMimeType || asset.mimeType || "audio/mpeg"
+        );
+        playerEl.dataset.directUrl = "";
+        playerEl.dataset.fallbackTried = "1";
+        playerEl.src = blobUrl;
+      } catch (err) {
+        console.warn("Unable to load uploaded audio preview:", err);
+      }
+    }
+
+    function resetUploadState({ keepDropzoneVisible = true } = {}) {
+      state.uploadToken++;
+      state.isUploadingFile = false;
+      state.pendingUploadFile = null;
+      if (state.uploadedAsset?.localObjectUrl && !state.portalAssetBlobCache.has(state.uploadedAsset.assetId)) {
+        try { URL.revokeObjectURL(state.uploadedAsset.localObjectUrl); } catch {}
+      }
+      state.uploadedAsset = null;
+      audioFileInput.value = "";
+      uploadStatusCard.classList.add("hidden");
+      uploadSignInResumeBtn.classList.add("hidden");
+      uploadProgressFill.style.width = "0%";
+      uploadProgressText.textContent = "جاهز للرفع...";
+      if (keepDropzoneVisible) uploadDropzone.classList.remove("hidden");
+      if (state.audioSourceMode === "upload") {
+        audioPreviewBox.classList.add("hidden");
+        adminAudioPlayer.removeAttribute("src");
+      }
+    }
+
+    async function inspectSelectedDeviceFile(file) {
+      if (!file) return { ok: false, error: "لم يتم اختيار ملف" };
+      if (file.size <= 0) return { ok: false, error: "الملف فارغ" };
+      if (file.size > MAX_UPLOAD_AUDIO_BYTES) {
+        return {
+          ok: false,
+          error: `حجم الملف (${(file.size / (1024 * 1024)).toFixed(1)} MB) يتجاوز الحد الأقصى (10 MB)`
+        };
+      }
+      const headSlice = new Uint8Array(await file.slice(0, 64).arrayBuffer());
+      const sniffed = sniffAudioKind(headSlice);
+      const rawName = String(file.name || "audio.mp3");
+      const rawExtMatch = rawName.toLowerCase().match(/\.([a-z0-9]{1,8})$/);
+      let ext = rawExtMatch ? rawExtMatch[1] : "";
+      if (sniffed && SNIFF_TO_EXT[sniffed] && (!ext || !EXT_TO_MIME[ext])) {
+        ext = SNIFF_TO_EXT[sniffed];
+      }
+      const rawMime = String(file.type || "").toLowerCase();
+      const mimeAudioOk = rawMime.startsWith("audio/") || rawMime === "application/ogg";
+      if (!sniffed && !mimeAudioOk && !EXT_TO_MIME[ext]) {
+        return {
+          ok: false,
+          error: "هذا الملف ليس مقطعاً صوتياً مدعوماً. اختر ملف MP3 أو M4A أو WAV أو OGG."
+        };
+      }
+      if (!ext || !/^[a-z0-9]{1,8}$/.test(ext)) ext = "mp3";
+      const safeMime = (mimeAudioOk ? rawMime : (EXT_TO_MIME[ext] || "audio/mpeg")).slice(0, 80);
+      const kindLabel = sniffed || ext.toUpperCase();
+      return { ok: true, ext, safeMime, kindLabel, cleanTitle: rawName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() };
+    }
+
+    async function uploadDeviceAudioToSite(file, meta, localObjectUrl) {
+      const token = ++state.uploadToken;
+      state.isUploadingFile = true;
+      state.pendingUploadFile = null;
+      uploadSignInResumeBtn.classList.add("hidden");
+      uploadStatusCard.classList.remove("hidden");
+      uploadedFileNameLabel.textContent = `🎵 ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
+      uploadProgressFill.style.width = "4%";
+      uploadProgressText.textContent = "جاري تجهيز وتحميل المقطع الصوتي على الموقع... 4%";
+
+      const assetId = `ast_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const buffer = await file.arrayBuffer();
+      if (token !== state.uploadToken) return null;
+
+      const bytes = new Uint8Array(buffer);
+      const chunkCount = Math.max(1, Math.ceil(bytes.length / CHUNK_RAW_BYTES));
+      const approxDuration = Number.isFinite(adminAudioPlayer.duration) && adminAudioPlayer.duration > 0
+        ? Math.min(3600, Math.round(adminAudioPlayer.duration))
+        : 0;
+
+      try {
+        await setDoc(doc(assetsCol, assetId), {
+          authorUid: state.currentUser.uid,
+          fileName: String(file.name || "audio.mp3").slice(0, 180),
+          mimeType: meta.safeMime,
+          fileExt: meta.ext,
+          totalBytes: bytes.length,
+          chunkCount,
+          durationSec: approxDuration,
+          isReady: false,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+
+        let completed = 0;
+        const CONCURRENCY = 3;
+        for (let start = 0; start < chunkCount; start += CONCURRENCY) {
+          if (token !== state.uploadToken) return null;
+          const batchIndices = [];
+          for (let i = start; i < Math.min(chunkCount, start + CONCURRENCY); i++) {
+            batchIndices.push(i);
+          }
+          await Promise.all(
+            batchIndices.map(async (idx) => {
+              const slice = bytes.subarray(idx * CHUNK_RAW_BYTES, (idx + 1) * CHUNK_RAW_BYTES);
+              const b64 = uint8ToBase64(slice);
+              await setDoc(doc(chunksCol, `${assetId}_${idx}`), {
+                authorUid: state.currentUser.uid,
+                assetId,
+                chunkIndex: idx,
+                dataBase64: b64,
+                createdAt: serverTimestamp()
+              });
+              completed++;
+              const pct = Math.min(96, Math.round((completed / chunkCount) * 92) + 4);
+              if (token === state.uploadToken) {
+                uploadProgressFill.style.width = `${pct}%`;
+                uploadProgressText.textContent = `جاري تحميل المقطع على الموقع... ${pct}% (${completed}/${chunkCount})`;
+              }
+            })
+          );
+        }
+
+        if (token !== state.uploadToken) return null;
+        const finalDuration = Number.isFinite(adminAudioPlayer.duration) && adminAudioPlayer.duration > 0
+          ? Math.min(3600, Math.round(adminAudioPlayer.duration))
+          : approxDuration;
+
+        await updateDoc(doc(assetsCol, assetId), {
+          isReady: true,
+          durationSec: finalDuration,
+          updatedAt: serverTimestamp()
+        });
+
+        if (token !== state.uploadToken) return null;
+        uploadProgressFill.style.width = "100%";
+        uploadProgressText.textContent = `✓ تم تحميل المقطع على الموقع (${meta.kindLabel} • ${(bytes.length / (1024 * 1024)).toFixed(2)} MB) — اضغط «دفع» لتشغيله عند جميع المستخدمين!`;
+
+        state.portalAssetBlobCache.set(assetId, localObjectUrl);
+        state.uploadedAsset = {
+          assetId,
+          fileName: String(file.name || "audio.mp3").slice(0, 180),
+          mimeType: meta.safeMime,
+          fileExt: meta.ext,
+          totalBytes: bytes.length,
+          chunkCount,
+          durationSec: finalDuration,
+          isReady: true,
+          localObjectUrl,
+          kindLabel: meta.kindLabel
+        };
+        state.isUploadingFile = false;
+        syncAudioSourcePreview();
+        showToast("تم تحميل المقطع على الموقع بنجاح — جاهز للدفع الفوري!");
+        return state.uploadedAsset;
+      } catch (err) {
+        if (token !== state.uploadToken) return null;
+        console.error("Audio upload error:", err);
+        state.isUploadingFile = false;
+        uploadProgressFill.style.width = "0%";
+        uploadProgressText.textContent = `⚠️ تعذر التحميل: ${err?.message || "تحقق من الاتصال والصلاحيات"}`;
+        showToast("فشل تحميل المقطع على الموقع: " + (err?.message || "خطأ"));
+        return null;
+      }
+    }
+
+    async function handleSelectedDeviceFile(file) {
+      if (!file) return;
+      const meta = await inspectSelectedDeviceFile(file);
+      if (!meta.ok) {
+        showToast(meta.error);
+        return;
+      }
+
+      if (state.kind !== "audio" || state.audioSourceMode !== "upload") {
+        state.kind = "audio";
+        state.audioSourceMode = "upload";
+        setSegmentedValue("kindSegmented", "kind", "audio");
+        setSegmentedValue("audioSourceSegmented", "audiosrc", "upload");
+        syncFormSections();
+      }
+
+      const localObjectUrl = URL.createObjectURL(file);
+      adminAudioPlayer.dataset.directUrl = "";
+      adminAudioPlayer.dataset.fallbackTried = "1";
+      adminAudioPlayer.src = localObjectUrl;
+      if (meta.cleanTitle && !titleInput.value.trim()) {
+        titleInput.value = meta.cleanTitle.slice(0, 140);
+      }
+
+      if (!state.currentUser) {
+        state.uploadedAsset = null;
+        state.pendingUploadFile = file;
+        uploadStatusCard.classList.remove("hidden");
+        uploadedFileNameLabel.textContent = `🎵 ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`;
+        uploadProgressFill.style.width = "0%";
+        uploadProgressText.textContent = "تمت معاينة المقطع — سجّل الدخول بـ Google ليبدأ التحميل على الموقع تلقائياً";
+        uploadSignInResumeBtn.classList.remove("hidden");
+        syncAudioSourcePreview();
+        showToast("سجّل الدخول بحساب Google لإكمال تحميل المقطع على الموقع");
+        return;
+      }
+
+      await uploadDeviceAudioToSite(file, meta, localObjectUrl);
     }
 
     function bindSegmented(containerId, attrName, onChange) {
@@ -1799,6 +2244,13 @@
     bindSegmented("kindSegmented", "kind", (val) => {
       state.kind = val;
       syncFormSections();
+      syncAudioSourcePreview();
+    });
+
+    bindSegmented("audioSourceSegmented", "audiosrc", (val) => {
+      state.audioSourceMode = val;
+      syncFormSections();
+      syncAudioSourcePreview();
     });
 
     bindSegmented("persistenceSegmented", "persistence", (val) => {
@@ -1810,6 +2262,38 @@
       state.delivery = val;
       syncFormSections();
       renderDailyTimesChips();
+    });
+
+    uploadDropzone.addEventListener("click", () => audioFileInput.click());
+    uploadDropzone.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        audioFileInput.click();
+      }
+    });
+    uploadDropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      uploadDropzone.classList.add("dragover");
+    });
+    uploadDropzone.addEventListener("dragleave", () => {
+      uploadDropzone.classList.remove("dragover");
+    });
+    uploadDropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      uploadDropzone.classList.remove("dragover");
+      const file = e.dataTransfer?.files?.[0];
+      if (file) handleSelectedDeviceFile(file);
+    });
+    audioFileInput.addEventListener("change", () => {
+      const file = audioFileInput.files?.[0];
+      if (file) handleSelectedDeviceFile(file);
+    });
+    clearUploadedFileBtn.addEventListener("click", () => {
+      resetUploadState();
+      audioFileInput.click();
+    });
+    uploadSignInResumeBtn.addEventListener("click", () => {
+      googleSignInBtn.click();
     });
 
     audioUrlInput.addEventListener("input", () => {
@@ -1833,12 +2317,16 @@
     });
 
     previewPlayBtn.addEventListener("click", () => {
-      if (!state.resolvedAudio?.isValidHttps || !adminAudioPlayer.src) {
-        showToast("اضغط «التعرف على الصوت» أولاً لاستخراج الصوت أو أدخل رابطاً مباشراً");
+      if (!adminAudioPlayer.src) {
+        showToast(
+          state.audioSourceMode === "upload"
+            ? "اختر مقطعاً صوتياً من جهازك أولاً"
+            : "اضغط «التعرف على الصوت» أولاً لاستخراج الصوت أو أدخل رابطاً مباشراً"
+        );
         return;
       }
       adminAudioPlayer.play().catch(() => {
-        showToast("تعذر التشغيل المباشر من المتصفح (تحقق من صلاحية الرابط)");
+        showToast("تعذر التشغيل المباشر من المتصفح — اضغط زر التشغيل داخل المشغل");
       });
     });
 
@@ -1860,14 +2348,14 @@
 
     adminAudioPlayer.addEventListener("error", () => {
       handleAudioFallback(adminAudioPlayer, () => {
-        if (state.resolvedAudio) {
+        if (state.audioSourceMode === "url" && state.resolvedAudio) {
           showToast("⚠️ المشغل لم يتمكن من فتح هذا الرابط كصوت؛ اختر رابطاً مؤكداً آخر");
         }
       });
     });
     listAudioPlayer.addEventListener("error", () => {
       handleAudioFallback(listAudioPlayer, () => {
-        showToast("تعذر تشغيل هذا الصوت في المتصفح؛ إن كان الرابط صالحاً سيعمل داخل التطبيق");
+        showToast("تعذر تشغيل هذا الصوت في المتصفح؛ إن كان الملف صالحاً سيعمل داخل التطبيق");
       });
     });
 
@@ -1878,18 +2366,20 @@
       state.discoveredTracks = [];
       state.selectedPlayableUrl = "";
       composerHeading.textContent = "📣 إنشاء ودفع تذكير أو صوت للمستخدمين";
-      publishBtn.textContent = "🚀 حفظ ودفع إلى التطبيق الآن";
       cancelEditBtn.classList.add("hidden");
       reminderForm.reset();
+      resetUploadState();
       state.kind = "audio";
+      state.audioSourceMode = "upload";
       state.persistence = "pinned";
       state.delivery = "now";
       setSegmentedValue("kindSegmented", "kind", "audio");
+      setSegmentedValue("audioSourceSegmented", "audiosrc", "upload");
       setSegmentedValue("persistenceSegmented", "persistence", "pinned");
       setSegmentedValue("deliverySegmented", "delivery", "now");
       syncFormSections();
       renderDailyTimesChips();
-      updateAudioPreview();
+      syncAudioSourcePreview();
     }
 
     function enterEditMode(item) {
@@ -1897,15 +2387,19 @@
       state.editingItem = item;
       state.dailyTimes = [];
       state.discoveredTracks = [];
+      resetUploadState();
       composerHeading.textContent = `✏️ تعديل التذكير: ${item.title}`;
       publishBtn.textContent = "💾 حفظ التعديلات وتحديث التطبيق";
       cancelEditBtn.classList.remove("hidden");
 
+      const hasUploaded = Boolean(item.audioAssetId && Number(item.audioChunkCount) > 0);
       state.kind = item.reminderKind === "text" ? "text" : "audio";
+      state.audioSourceMode = hasUploaded ? "upload" : "url";
       state.persistence = item.persistenceMode === "temporary" ? "temporary" : "pinned";
       state.delivery = ["now", "scheduled", "daily"].includes(item.deliveryMode) ? item.deliveryMode : "now";
 
       setSegmentedValue("kindSegmented", "kind", state.kind);
+      setSegmentedValue("audioSourceSegmented", "audiosrc", state.audioSourceMode);
       setSegmentedValue("persistenceSegmented", "persistence", state.persistence);
       setSegmentedValue("deliverySegmented", "delivery", state.delivery);
 
@@ -1914,9 +2408,28 @@
       audioUrlInput.value = item.normalizedAudioUrl || item.audioUrl || "";
       scheduleTimeInput.value = item.scheduledTimeHHmm || "08:00";
 
+      if (hasUploaded) {
+        state.uploadedAsset = {
+          assetId: item.audioAssetId,
+          fileName: item.audioFileName || `${item.title || "audio"}.${item.audioFileExt || "mp3"}`,
+          mimeType: item.audioMimeType || "audio/mpeg",
+          fileExt: item.audioFileExt || "mp3",
+          totalBytes: 0,
+          chunkCount: Number(item.audioChunkCount),
+          durationSec: 0,
+          isReady: true,
+          localObjectUrl: state.portalAssetBlobCache.get(item.audioAssetId) || "",
+          kindLabel: (item.audioFileExt || "AUDIO").toUpperCase()
+        };
+        uploadStatusCard.classList.remove("hidden");
+        uploadedFileNameLabel.textContent = `🎵 ${state.uploadedAsset.fileName}`;
+        uploadProgressFill.style.width = "100%";
+        uploadProgressText.textContent = "✓ مقطع صوتي مرفوع مسبقاً على الموقع ومربوط بالتذكير";
+      }
+
       syncFormSections();
       renderDailyTimesChips();
-      updateAudioPreview();
+      syncAudioSourcePreview();
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
@@ -1945,7 +2458,7 @@
         if (err?.code === "auth/unauthorized-domain") {
           const host = window.location.hostname || "نطاق الاستضافة";
           domainHelpBanner.innerHTML =
-            `لتفعيل تسجيل الدخول من استضافتك الجديدة، أضف النطاق <code dir="ltr">${escapeHtml(host)}</code> في Firebase Console ← Authentication ← Settings ← Authorized domains للمشروع <code dir="ltr">gen-lang-client-0269726559</code>.`;
+            `لتفعيل تسجيل الدخول من استضافتك الجديدة، أضف النطاق <code dir="ltr">${escapeHtml(host)}</code> في Firebase Console ← Authentication ← Settings ← Authorized domains للمشروع <code dir="ltr">gen-lang-client-0088673365</code>.`;
           domainHelpBanner.classList.remove("hidden");
           showToast("يجب السماح بنطاق الاستضافة في إعدادات Firebase Auth");
           return;
@@ -1979,6 +2492,12 @@
         userLabelPill.classList.remove("hidden");
         googleSignInBtn.classList.add("hidden");
         googleSignOutBtn.classList.remove("hidden");
+        uploadSignInResumeBtn.classList.add("hidden");
+        if (state.pendingUploadFile && !state.isUploadingFile) {
+          const pending = state.pendingUploadFile;
+          state.pendingUploadFile = null;
+          handleSelectedDeviceFile(pending);
+        }
       } else {
         userLabelPill.classList.add("hidden");
         googleSignInBtn.classList.remove("hidden");
@@ -2004,43 +2523,63 @@
       }
 
       let resolvedAudio = null;
+      let uploadedAsset = null;
+
       if (state.kind === "audio") {
-        const chosenUrl = state.selectedPlayableUrl || audioUrlInput.value.trim();
-        resolvedAudio = resolveAudioUrl(chosenUrl);
-        if (!resolvedAudio.isValidHttps) {
-          showToast("يرجى إدخال رابط صوت صحيح يبدأ بـ https:// أو الضغط على «التعرف على الصوت»");
-          return;
-        }
-        if (!state.resolvedAudio?.verified) {
-          if (!resolvedAudio.isDirectAudio && !state.selectedPlayableUrl) {
-            await searchAudioInWebpage(chosenUrl);
-            if (!state.selectedPlayableUrl) return;
-            resolvedAudio = resolveAudioUrl(state.selectedPlayableUrl);
+        if (state.audioSourceMode === "upload") {
+          if (state.isUploadingFile) {
+            showToast("يرجى الانتظار بضع ثوانٍ حتى يكتمل تحميل المقطع الصوتي على الموقع");
+            return;
+          }
+          if (!state.uploadedAsset?.isReady && state.pendingUploadFile) {
+            const pending = state.pendingUploadFile;
+            state.pendingUploadFile = null;
+            await handleSelectedDeviceFile(pending);
+          }
+          if (!state.uploadedAsset?.isReady) {
+            showToast("اختر مقطعاً صوتياً من جهازك أولاً ليتم تحميله على الموقع");
+            audioFileInput.click();
+            return;
+          }
+          uploadedAsset = state.uploadedAsset;
+        } else {
+          const chosenUrl = state.selectedPlayableUrl || audioUrlInput.value.trim();
+          resolvedAudio = resolveAudioUrl(chosenUrl);
+          if (!resolvedAudio.isValidHttps) {
+            showToast("يرجى إدخال رابط صوت صحيح يبدأ بـ https:// أو الضغط على «التعرف على الصوت»");
+            return;
           }
           if (!state.resolvedAudio?.verified) {
-            const finalUrl = state.selectedPlayableUrl || resolvedAudio.directPlayUrl;
-            const publishOriginalText = publishBtn.textContent;
-            publishBtn.disabled = true;
-            publishBtn.textContent = "⏳ جارٍ التأكد من الصوت...";
-            const inspection = await verifyAudioUrl(finalUrl);
-            publishBtn.textContent = publishOriginalText;
-            if (!inspection.ok) {
-              publishBtn.disabled = false;
-              scanStatusText.textContent = `⚠️ ${inspection.detail}`;
-              showToast(inspection.detail);
-              return;
+            if (!resolvedAudio.isDirectAudio && !state.selectedPlayableUrl) {
+              await searchAudioInWebpage(chosenUrl);
+              if (!state.selectedPlayableUrl) return;
+              resolvedAudio = resolveAudioUrl(state.selectedPlayableUrl);
             }
-            resolvedAudio = {
-              ...resolvedAudio,
-              directPlayUrl: inspection.finalUrl || finalUrl,
-              sourceTypeLabel: inspection.kindLabel || resolvedAudio.sourceTypeLabel,
-              verified: true
-            };
+            if (!state.resolvedAudio?.verified) {
+              const finalUrl = state.selectedPlayableUrl || resolvedAudio.directPlayUrl;
+              const publishOriginalText = publishBtn.textContent;
+              publishBtn.disabled = true;
+              publishBtn.textContent = "⏳ جارٍ التأكد من الصوت...";
+              const inspection = await verifyAudioUrl(finalUrl);
+              publishBtn.textContent = publishOriginalText;
+              if (!inspection.ok) {
+                publishBtn.disabled = false;
+                scanStatusText.textContent = `⚠️ ${inspection.detail}`;
+                showToast(inspection.detail);
+                return;
+              }
+              resolvedAudio = {
+                ...resolvedAudio,
+                directPlayUrl: inspection.finalUrl || finalUrl,
+                sourceTypeLabel: inspection.kindLabel || resolvedAudio.sourceTypeLabel,
+                verified: true
+              };
+            } else {
+              resolvedAudio = { ...resolvedAudio, ...state.resolvedAudio };
+            }
           } else {
             resolvedAudio = { ...resolvedAudio, ...state.resolvedAudio };
           }
-        } else {
-          resolvedAudio = { ...resolvedAudio, ...state.resolvedAudio };
         }
       }
 
@@ -2058,7 +2597,9 @@
       const safeOrigUrl = safeOrigUrlRaw
         ? (safeOrigUrlRaw.startsWith("https://") ? safeOrigUrlRaw : safeDirectUrl).slice(0, 1024)
         : null;
-      const safeSourceType = resolvedAudio
+      const safeSourceType = uploadedAsset
+        ? `مقطع مرفوع (${uploadedAsset.kindLabel || uploadedAsset.fileExt.toUpperCase()})`.slice(0, 64)
+        : resolvedAudio
         ? String(state.resolvedAudio?.sourceTypeLabel || resolvedAudio.sourceTypeLabel || "صوت").slice(0, 64)
         : null;
 
@@ -2073,14 +2614,40 @@
             deliveryMode: state.delivery,
             scheduledTimeHHmm: primaryTime,
             updatedAt: serverTimestamp(),
-            audioUrl: safeOrigUrl || deleteField(),
-            normalizedAudioUrl: safeDirectUrl || deleteField(),
             audioSourceType: safeSourceType || deleteField(),
             expiresAtMillis:
               state.persistence === "temporary"
                 ? Date.now() + parseInt(expiryHoursSelect.value || "24", 10) * 3600 * 1000
                 : deleteField()
           };
+          if (uploadedAsset) {
+            updatePayload.audioStorageMode = "firestore_chunks";
+            updatePayload.audioAssetId = uploadedAsset.assetId;
+            updatePayload.audioChunkCount = uploadedAsset.chunkCount;
+            updatePayload.audioFileExt = uploadedAsset.fileExt;
+            updatePayload.audioFileName = uploadedAsset.fileName;
+            updatePayload.audioMimeType = uploadedAsset.mimeType;
+            updatePayload.audioUrl = deleteField();
+            updatePayload.normalizedAudioUrl = deleteField();
+          } else if (safeOrigUrl && safeDirectUrl) {
+            updatePayload.audioStorageMode = "url";
+            updatePayload.audioUrl = safeOrigUrl;
+            updatePayload.normalizedAudioUrl = safeDirectUrl;
+            updatePayload.audioAssetId = deleteField();
+            updatePayload.audioChunkCount = deleteField();
+            updatePayload.audioFileExt = deleteField();
+            updatePayload.audioFileName = deleteField();
+            updatePayload.audioMimeType = deleteField();
+          } else {
+            updatePayload.audioStorageMode = deleteField();
+            updatePayload.audioUrl = deleteField();
+            updatePayload.normalizedAudioUrl = deleteField();
+            updatePayload.audioAssetId = deleteField();
+            updatePayload.audioChunkCount = deleteField();
+            updatePayload.audioFileExt = deleteField();
+            updatePayload.audioFileName = deleteField();
+            updatePayload.audioMimeType = deleteField();
+          }
           await updateDoc(doc(remindersCol, state.editingId), updatePayload);
           showToast("تم تحديث التذكير في التطبيق وقاعدة البيانات فوراً!");
           enterCreateMode();
@@ -2102,7 +2669,16 @@
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp()
             };
-            if (safeOrigUrl && safeDirectUrl) {
+            if (uploadedAsset) {
+              payload.audioStorageMode = "firestore_chunks";
+              payload.audioAssetId = uploadedAsset.assetId;
+              payload.audioChunkCount = uploadedAsset.chunkCount;
+              payload.audioFileExt = uploadedAsset.fileExt;
+              payload.audioFileName = uploadedAsset.fileName;
+              payload.audioMimeType = uploadedAsset.mimeType;
+              payload.audioSourceType = safeSourceType || "مقطع مرفوع";
+            } else if (safeOrigUrl && safeDirectUrl) {
+              payload.audioStorageMode = "url";
               payload.audioUrl = safeOrigUrl;
               payload.normalizedAudioUrl = safeDirectUrl;
               payload.audioSourceType = safeSourceType || "صوت";
@@ -2116,6 +2692,8 @@
           showToast(
             timesToPublish.length > 1
               ? `تم تثبيت ودفع الصوت لـ ${timesToPublish.length} أوقات يومية بنجاح!`
+              : state.delivery === "now" && uploadedAsset
+              ? "🚀 تم الدفع! المقطع الصوتي يشتغل الآن عند جميع مستخدمي التطبيق بنفس اللحظة"
               : "تم حفظ وتثبيت ودفع التذكير إلى تطبيق المؤذن بنجاح!"
           );
           enterCreateMode();
@@ -2219,6 +2797,8 @@
         const isOwner = state.currentUser && state.currentUser.uid === item.authorUid;
         const isExpired = item.expiresAtMillis && Date.now() > item.expiresAtMillis;
         const playUrl = item.normalizedAudioUrl || item.audioUrl || "";
+        const hasUploadedAudio = Boolean(item.audioAssetId && Number(item.audioChunkCount) > 0);
+        const canPlayInPortal = Boolean(playUrl || hasUploadedAudio);
 
         const card = document.createElement("article");
         card.className = `reminder-item ${item.isActive ? "" : "paused"}`;
@@ -2237,7 +2817,9 @@
             ? "⌛ منتهي"
             : "⏳ مؤقت";
 
-        const kindLabel = item.reminderKind === "audio" ? `🔊 ${item.audioSourceType || "صوت"}` : "📝 نصي";
+        const kindLabel = item.reminderKind === "audio"
+          ? `🔊 ${item.audioSourceType || (hasUploadedAudio ? "مقطع مرفوع" : "صوت")}`
+          : "📝 نصي";
 
         card.innerHTML = `
           <div class="reminder-header">
@@ -2248,13 +2830,13 @@
             <span class="badge ${item.isActive ? "green" : "red"}">${item.isActive ? "مفعّل" : "متوقف"}</span>
           </div>
           <div class="badges-row">
-            <span class="badge gold">${kindLabel}</span>
+            <span class="badge gold">${escapeHtml(kindLabel)}</span>
             <span class="badge">${persistLabel}</span>
             <span class="badge">${deliveryLabel}</span>
           </div>
           <div class="actions-row">
-            ${playUrl ? `<button type="button" class="btn btn-outline btn-sm" data-act="play">▶️ تشغيل في الموقع</button>` : ""}
-            ${isOwner ? `<button type="button" class="btn btn-gold btn-sm" data-act="pushNow">⚡ دفع للتطبيق الآن</button>` : ""}
+            ${canPlayInPortal ? `<button type="button" class="btn btn-outline btn-sm" data-act="play">▶️ تشغيل في الموقع</button>` : ""}
+            ${isOwner ? `<button type="button" class="btn btn-gold btn-sm" data-act="pushNow">⚡ دفع وتشغيل الآن عند الجميع</button>` : ""}
             ${isOwner ? `<button type="button" class="btn btn-outline btn-sm" data-act="edit">✏️ تعديل</button>` : ""}
             ${isOwner ? `<button type="button" class="btn btn-outline btn-sm" data-act="toggle">${item.isActive ? "⏸️ إيقاف" : "▶️ تفعيل"}</button>` : ""}
             ${isOwner ? `<button type="button" class="btn btn-danger btn-sm" data-act="delete">🗑️ حذف</button>` : ""}
@@ -2263,16 +2845,39 @@
 
         const playBtn = card.querySelector('[data-act="play"]');
         if (playBtn) {
-          playBtn.addEventListener("click", () => {
+          playBtn.addEventListener("click", async () => {
             inlinePlayerTitle.textContent = item.title;
-            listAudioPlayer.dataset.directUrl = playUrl;
-            listAudioPlayer.dataset.usingProxy = state.hasServerApi ? "1" : "0";
-            listAudioPlayer.dataset.fallbackTried = "0";
-            listAudioPlayer.src = previewSrcForUrl(playUrl);
             inlinePlayerCard.classList.remove("hidden");
-            listAudioPlayer.play().catch(() => {
-              showToast("تعذر التشغيل التلقائي — اضغط زر التشغيل داخل المشغل");
-            });
+            if (hasUploadedAudio) {
+              playBtn.disabled = true;
+              playBtn.textContent = "⏳ جاري التحميل...";
+              try {
+                const blobUrl = await fetchUploadedAudioBlobUrl(
+                  item.audioAssetId,
+                  Number(item.audioChunkCount),
+                  item.audioMimeType || "audio/mpeg"
+                );
+                listAudioPlayer.dataset.directUrl = "";
+                listAudioPlayer.dataset.fallbackTried = "1";
+                listAudioPlayer.src = blobUrl;
+                listAudioPlayer.play().catch(() => {
+                  showToast("تم تجهيز المقطع — اضغط زر التشغيل داخل المشغل");
+                });
+              } catch (err) {
+                showToast("تعذر تحميل المقطع للتشغيل: " + (err?.message || "خطأ"));
+              } finally {
+                playBtn.disabled = false;
+                playBtn.textContent = "▶️ تشغيل في الموقع";
+              }
+            } else {
+              listAudioPlayer.dataset.directUrl = playUrl;
+              listAudioPlayer.dataset.usingProxy = state.hasServerApi ? "1" : "0";
+              listAudioPlayer.dataset.fallbackTried = "0";
+              listAudioPlayer.src = previewSrcForUrl(playUrl);
+              listAudioPlayer.play().catch(() => {
+                showToast("تعذر التشغيل التلقائي — اضغط زر التشغيل داخل المشغل");
+              });
+            }
           });
         }
 
@@ -2285,7 +2890,7 @@
                 triggerNonce: increment(1),
                 updatedAt: serverTimestamp()
               });
-              showToast(`تم دفع "${item.title}" فوراً لجميع أجهزة التطبيق!`);
+              showToast(`⚡ تم الدفع! "${item.title}" يشتغل الآن عند جميع المستخدمين بنفس اللحظة`);
             } catch (err) {
               showToast("فشل الدفع الفوري: " + err.message);
             }
@@ -2317,6 +2922,20 @@
           delBtn.addEventListener("click", async () => {
             try {
               await deleteDoc(doc(remindersCol, item.id));
+              if (item.audioAssetId && Number(item.audioChunkCount) > 0) {
+                const stillUsed = state.allItems.some(
+                  (other) => other.id !== item.id && other.audioAssetId === item.audioAssetId
+                );
+                if (!stillUsed) {
+                  const chunkCount = Number(item.audioChunkCount);
+                  await Promise.allSettled([
+                    deleteDoc(doc(assetsCol, item.audioAssetId)),
+                    ...Array.from({ length: chunkCount }, (_, idx) =>
+                      deleteDoc(doc(chunksCol, `${item.audioAssetId}_${idx}`))
+                    )
+                  ]);
+                }
+              }
               if (state.editingId === item.id) enterCreateMode();
               showToast("تم حذف التذكير من التطبيق وقاعدة البيانات");
             } catch (err) {

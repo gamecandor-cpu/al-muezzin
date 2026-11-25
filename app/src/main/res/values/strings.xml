@@ -180,4 +180,21 @@
     <string name="setting_portal_sync_btn">مزامنة الآن</string>
     <string name="setting_portal_reminders_count">التذكيرات المستلمة حالياً: %1$d</string>
     <string name="setting_portal_package_label">معرف الحزمة: %1$s</string>
+
+    <string name="mandatory_notif_dialog_title">تفعيل الإشعارات الإلزامي</string>
+    <string name="mandatory_notif_dialog_body">لكي يرفع التطبيق الأذان ويشغّل أذكار الصباح والمساء وتنبيهات المؤذن تلقائياً في الخلفية (مع أو بدون إنترنت)، يجب تفعيل صلاحية الإشعارات الآن.</string>
+    <string name="mandatory_notif_dialog_btn">تفعيل الإشعارات الآن</string>
+    <string name="mandatory_notif_dialog_later">لاحقاً</string>
+    <string name="home_notif_banner_title">تفعيل التنبيهات الإلزامي بالخلفية</string>
+    <string name="home_notif_banner_notif_missing">صلاحية الإشعارات غير مفعّلة — اضغط للتفعيل الفوري للأذان والأذكار.</string>
+    <string name="home_notif_banner_alarm_missing">يرجى تفعيل "المنبهات والتذكيرات الدقيقة" ليعمل الأذان في ثانيته.</string>
+    <string name="home_notif_banner_battery_missing">لتشغيل الأذان والأذكار بالخلفية دائماً، اختر "غير مقيد" من إعدادات البطارية.</string>
+    <string name="home_notif_banner_action">تفعيل الآن</string>
+    <string name="setting_background_section_title">التشغيل الدائم بالخلفية والإشعارات</string>
+    <string name="setting_background_section_desc">يعمل الأذان، أذكار الصباح والمساء، والمواقيت الفلكية تلقائياً في الخلفية بإنترنت أو بدون إنترنت.</string>
+    <string name="setting_bg_notif_row">الإشعارات الإلزامية</string>
+    <string name="setting_bg_exact_alarm_row">دقة مواعيد الأذان والأذكار</string>
+    <string name="setting_bg_battery_row">العمل الدائم بالخلفية (البطارية)</string>
+    <string name="setting_bg_status_ready">مفعّل</string>
+    <string name="setting_bg_status_action">تفعيل</string>
 </resources>

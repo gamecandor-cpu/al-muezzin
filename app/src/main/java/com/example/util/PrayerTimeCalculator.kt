@@ -2,17 +2,27 @@ package com.example.util
 
 import android.icu.util.IslamicCalendar
 import com.example.data.model.AladhanTimings
+import com.example.data.model.AsrSchool
+import com.example.data.model.CalculationMethod
 import com.example.data.model.PrayerAdjustments
 import com.example.data.model.PrayerTimeItem
 import com.example.data.model.PrayerType
 import com.example.data.model.ReligiousOccasion
 import com.example.data.model.TimeFormat
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.acos
+import kotlin.math.asin
+import kotlin.math.atan
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.tan
 
@@ -619,5 +629,123 @@ object PrayerTimeCalculator {
         val x = cos(myLat) * tan(kaabaLat) - sin(myLat) * cos(kaabaLng - myLng)
         val bearingDeg = atan2(y, x) * (180.0 / PI)
         return ((bearingDeg + 360.0) % 360.0).toFloat()
+    }
+
+    private val HIJRI_MONTHS_AR = arrayOf(
+        "محرم", "صفر", "ربيع الأول", "ربيع الثاني",
+        "جمادى الأولى", "جمادى الآخرة", "رجب", "شعبان",
+        "رمضان", "شوال", "ذو القعدة", "ذو الحجة"
+    )
+
+    fun offlineHijriDateFormatted(
+        timeZoneId: String? = null,
+        nowMillis: Long = System.currentTimeMillis()
+    ): String {
+        val day = currentHijriDayFallback(timeZoneId)
+        val monthNum = currentHijriMonthFallback(timeZoneId)
+        val year = currentHijriYearFallback(timeZoneId)
+        val monthAr = HIJRI_MONTHS_AR.getOrElse(monthNum - 1) { "محرم" }
+        return "$day $monthAr $year هـ"
+    }
+
+    fun offlineGregorianReadable(
+        timeZoneId: String? = null,
+        nowMillis: Long = System.currentTimeMillis()
+    ): String {
+        val sdf = SimpleDateFormat("dd MMM yyyy", Locale.ENGLISH)
+        sdf.timeZone = resolveTimeZone(timeZoneId)
+        return sdf.format(Date(nowMillis))
+    }
+
+    fun computeOfflineTimings(
+        latitude: Double,
+        longitude: Double,
+        timeZoneId: String? = null,
+        method: CalculationMethod = CalculationMethod.UMM_AL_QURA,
+        asrSchool: AsrSchool = AsrSchool.SHAFI,
+        dateMillis: Long = System.currentTimeMillis()
+    ): AladhanTimings {
+        val tz = resolveTimeZone(timeZoneId)
+        val cal = Calendar.getInstance(tz).apply { timeInMillis = dateMillis }
+        var year = cal.get(Calendar.YEAR)
+        var month = cal.get(Calendar.MONTH) + 1
+        val day = cal.get(Calendar.DAY_OF_MONTH)
+        val tzOffsetHours = tz.getOffset(dateMillis) / 3_600_000.0
+
+        if (month <= 2) {
+            year -= 1
+            month += 12
+        }
+        val a = floor(year / 100.0)
+        val b = 2.0 - a + floor(a / 4.0)
+        val jd = floor(365.25 * (year + 4716)) + floor(30.6001 * (month + 1)) + day + b - 1524.5
+
+        fun sunPosition(jdVal: Double): Pair<Double, Double> {
+            val d = jdVal - 2451545.0
+            val g = Math.toRadians(((357.529 + 0.98560028 * d) % 360.0 + 360.0) % 360.0)
+            val qDeg = ((280.459 + 0.98564736 * d) % 360.0 + 360.0) % 360.0
+            val lRad = Math.toRadians(((qDeg + 1.915 * sin(g) + 0.020 * sin(2.0 * g)) % 360.0 + 360.0) % 360.0)
+            val eRad = Math.toRadians(23.439 - 0.00000036 * d)
+            var raHours = Math.toDegrees(atan2(cos(eRad) * sin(lRad), cos(lRad))) / 15.0
+            raHours = ((raHours % 24.0) + 24.0) % 24.0
+            val qHours = qDeg / 15.0
+            var eqT = qHours - raHours
+            if (eqT > 12.0) eqT -= 24.0
+            if (eqT < -12.0) eqT += 24.0
+            val declRad = asin(sin(eRad) * sin(lRad))
+            return declRad to eqT
+        }
+
+        val jdNoon = jd + 0.5 - longitude / 360.0
+        val (decl, eqT) = sunPosition(jdNoon)
+        val dhuhrHours = 12.0 + tzOffsetHours - (longitude / 15.0) - eqT
+        val latRad = Math.toRadians(latitude.coerceIn(-65.0, 65.0))
+
+        fun hourAngleHours(sunAltitudeDeg: Double): Double {
+            val num = sin(Math.toRadians(sunAltitudeDeg)) - sin(latRad) * sin(decl)
+            val den = (cos(latRad) * cos(decl)).takeIf { abs(it) > 1e-6 } ?: 1e-6
+            val cosH = (num / den).coerceIn(-1.0, 1.0)
+            return Math.toDegrees(acos(cosH)) / 15.0
+        }
+
+        val (fajrAngleDeg, ishaAngleDeg, ishaFixedMinutesAfterMaghrib) = when (method) {
+            CalculationMethod.UMM_AL_QURA -> Triple(18.5, 0.0, 90)
+            CalculationMethod.MWL -> Triple(18.0, 17.0, null)
+            CalculationMethod.EGYPTIAN -> Triple(19.5, 17.5, null)
+            CalculationMethod.ISNA -> Triple(15.0, 15.0, null)
+            CalculationMethod.KARACHI -> Triple(18.0, 18.0, null)
+            CalculationMethod.GULF -> Triple(19.5, 0.0, 90)
+            CalculationMethod.KUWAIT -> Triple(18.0, 17.5, null)
+            CalculationMethod.QATAR -> Triple(18.0, 0.0, 90)
+            CalculationMethod.TURKEY -> Triple(18.0, 17.0, null)
+        }
+
+        val fajrHours = dhuhrHours - hourAngleHours(-fajrAngleDeg)
+        val sunriseHours = dhuhrHours - hourAngleHours(-0.833)
+        val shadowFactor = if (asrSchool == AsrSchool.HANAFI) 2.0 else 1.0
+        val asrAltDeg = Math.toDegrees(atan(1.0 / (shadowFactor + tan(abs(latRad - decl)))))
+        val asrHours = dhuhrHours + hourAngleHours(asrAltDeg)
+        val maghribHours = dhuhrHours + hourAngleHours(-0.833)
+        val ishaHours = if (ishaFixedMinutesAfterMaghrib != null) {
+            maghribHours + (ishaFixedMinutesAfterMaghrib / 60.0)
+        } else {
+            dhuhrHours + hourAngleHours(-ishaAngleDeg)
+        }
+
+        fun formatDecimalHours(rawHours: Double): String {
+            val totalMinutes = ((rawHours * 60.0).roundToInt() % 1440 + 1440) % 1440
+            return String.format(Locale.US, "%02d:%02d", totalMinutes / 60, totalMinutes % 60)
+        }
+
+        val fajrStr = formatDecimalHours(fajrHours)
+        return AladhanTimings(
+            imsak = shiftTime24(fajrStr, -10),
+            fajr = fajrStr,
+            sunrise = formatDecimalHours(sunriseHours),
+            dhuhr = formatDecimalHours(dhuhrHours + (1.0 / 60.0)),
+            asr = formatDecimalHours(asrHours),
+            maghrib = formatDecimalHours(maghribHours),
+            isha = formatDecimalHours(ishaHours)
+        )
     }
 }

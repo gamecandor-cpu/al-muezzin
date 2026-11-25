@@ -139,3 +139,27 @@ dependencies {
   // "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
 }
+
+abstract class ExportRootApkTask : DefaultTask() {
+  @get:InputFile
+  abstract val sourceApk: RegularFileProperty
+
+  @get:OutputFile
+  abstract val destApk: RegularFileProperty
+
+  @TaskAction
+  fun export() {
+    sourceApk.get().asFile.copyTo(destApk.get().asFile, overwrite = true)
+  }
+}
+
+val exportRootApk = tasks.register<ExportRootApkTask>("exportRootApk") {
+  sourceApk.set(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk"))
+  destApk.set(rootProject.layout.projectDirectory.file("al-muezzin.apk"))
+  mustRunAfter("packageDebug", "createDebugApkListingFileRedirect")
+}
+
+tasks.matching { it.name == "assembleDebug" }.configureEach {
+  finalizedBy(exportRootApk)
+}
+

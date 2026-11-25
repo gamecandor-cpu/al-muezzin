@@ -5,7 +5,12 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.PowerManager
+import com.example.MainActivity
 import com.example.data.model.AladhanTimings
+import com.example.data.model.AsrSchool
+import com.example.data.model.AthanPlayMode
+import com.example.data.model.CalculationMethod
 import com.example.data.model.MuezzinVoice
 import com.example.data.model.PrayerAdjustments
 import com.example.data.model.PrayerType
@@ -15,25 +20,109 @@ import com.example.data.model.UserSettings
 import com.example.data.remote.BroadcastReminder
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 class PrayerNotificationScheduler(private val context: Context) {
 
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    fun canScheduleExactAlarms(): Boolean {
+        val manager = alarmManager ?: return false
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            manager.canScheduleExactAlarms()
+        } else {
+            true
+        }
+    }
+
+    fun isIgnoringBatteryOptimizations(): Boolean {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return true
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            pm.isIgnoringBatteryOptimizations(context.packageName)
+        } else {
+            true
+        }
+    }
+
+    fun getCachedAthanPlayMode(): AthanPlayMode {
+        return AthanPlayMode.fromId(prefs.getString(KEY_ATHAN_PLAY_MODE_ID, null))
+    }
+
+    fun getOrComputeOfflineTimings(
+        latitude: Double,
+        longitude: Double,
+        timeZoneId: String?,
+        method: CalculationMethod,
+        asrSchool: AsrSchool
+    ): AladhanTimings {
+        val todayKey = currentDateKey(timeZoneId)
+        val cachedDate = prefs.getString(KEY_TIMINGS_DATE_KEY, null)
+        val cachedLat = java.lang.Double.longBitsToDouble(prefs.getLong(KEY_LATITUDE_BITS, 0L))
+        val cachedLng = java.lang.Double.longBitsToDouble(prefs.getLong(KEY_LONGITUDE_BITS, 0L))
+        val hasCoords = prefs.getBoolean(KEY_HAS_COORDS, false)
+        val sameParams = hasCoords &&
+            cachedDate == todayKey &&
+            kotlin.math.abs(cachedLat - latitude) < 0.01 &&
+            kotlin.math.abs(cachedLng - longitude) < 0.01 &&
+            prefs.getInt(KEY_CALC_METHOD_ID, -1) == method.id &&
+            prefs.getInt(KEY_ASR_SCHOOL_ID, -1) == asrSchool.id
+
+        if (sameParams) {
+            val fajr = prefs.getString(KEY_FAJR, null)
+            val sunrise = prefs.getString(KEY_SUNRISE, null)
+            val dhuhr = prefs.getString(KEY_DHUHR, null)
+            val asr = prefs.getString(KEY_ASR, null)
+            val maghrib = prefs.getString(KEY_MAGHRIB, null)
+            val isha = prefs.getString(KEY_ISHA, null)
+            if (fajr != null && sunrise != null && dhuhr != null && asr != null && maghrib != null && isha != null) {
+                return AladhanTimings(
+                    imsak = prefs.getString(KEY_IMSAK, "").orEmpty(),
+                    fajr = fajr,
+                    sunrise = sunrise,
+                    dhuhr = dhuhr,
+                    asr = asr,
+                    maghrib = maghrib,
+                    isha = isha
+                )
+            }
+        }
+
+        return PrayerTimeCalculator.computeOfflineTimings(
+            latitude = latitude,
+            longitude = longitude,
+            timeZoneId = timeZoneId,
+            method = method,
+            asrSchool = asrSchool
+        )
+    }
+
     fun scheduleUpcomingPrayers(
         timings: AladhanTimings,
         timeZoneId: String?,
         cityName: String?,
         adjustments: PrayerAdjustments,
-        settings: UserSettings
+        settings: UserSettings,
+        latitude: Double? = null,
+        longitude: Double? = null
     ) {
-        saveScheduleCache(timings, timeZoneId, cityName, adjustments, settings)
+        saveScheduleCache(
+            timings = timings,
+            timeZoneId = timeZoneId,
+            cityName = cityName,
+            adjustments = adjustments,
+            settings = settings,
+            latitude = latitude,
+            longitude = longitude
+        )
         PrayerNotificationReceiver.ensureAllChannels(context)
 
         val adj = PrayerTimeCalculator.adjustedTimings(timings, adjustments)
         scheduleAthkarAutoAlarms(adj = adj, tzId = timeZoneId)
+        scheduleDailyMidnightReschedule(timeZoneId)
 
         if (!settings.athanEnabled) {
             cancelAllPrayerAlarms()
@@ -73,6 +162,7 @@ class PrayerNotificationScheduler(private val context: Context) {
                 putExtra(PrayerNotificationReceiver.EXTRA_TIME_LABEL, formattedTime)
                 putExtra(PrayerNotificationReceiver.EXTRA_VOICE_ID, voice.id)
                 putExtra(PrayerNotificationReceiver.EXTRA_ATHAN_ENABLED, settings.athanEnabled)
+                putExtra(PrayerNotificationReceiver.EXTRA_ATHAN_PLAY_MODE_ID, settings.athanPlayMode.id)
             }
 
             val pendingIntent = PendingIntent.getBroadcast(
@@ -82,10 +172,8 @@ class PrayerNotificationScheduler(private val context: Context) {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            scheduleExactOrInexact(triggerMs, pendingIntent)
+            scheduleExactOrInexact(triggerMs, pendingIntent, useAlarmClock = true)
         }
-
-        scheduleAthkarAutoAlarms(adj = adj, tzId = timeZoneId)
     }
 
     fun isAthkarAutoPlayEnabled(): Boolean = prefs.getBoolean(KEY_ATHKAR_AUTO_ENABLED, true)
@@ -130,6 +218,18 @@ class PrayerNotificationScheduler(private val context: Context) {
         }
     }
 
+    fun scheduleMorningAthkarOnlyIfEnabled() {
+        val tzId = prefs.getString(KEY_TIMEZONE, null)
+        if (prefs.getString(KEY_FAJR, null) != null || prefs.getBoolean(KEY_HAS_COORDS, false)) {
+            rescheduleFromCache()
+        } else {
+            scheduleMorningAthkarOnly(getAthkarScheduleConfig().morningTime24, tzId)
+            scheduleDailyMidnightReschedule(tzId)
+            scheduleDailyOccasionAlarm(tzId)
+            rescheduleRemoteRemindersFromCache()
+        }
+    }
+
     private fun scheduleMorningAthkarOnly(morningTime24: String, tzId: String?) {
         if (!isAthkarAutoPlayEnabled()) {
             cancelAthkarAutoAlarms()
@@ -151,7 +251,7 @@ class PrayerNotificationScheduler(private val context: Context) {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        scheduleExactOrInexact(triggerMs, pendingIntent)
+        scheduleExactOrInexact(triggerMs, pendingIntent, useAlarmClock = true)
     }
 
     fun scheduleAthkarAutoAlarms(
@@ -188,7 +288,7 @@ class PrayerNotificationScheduler(private val context: Context) {
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            scheduleExactOrInexact(triggerMs, pendingIntent)
+            scheduleExactOrInexact(triggerMs, pendingIntent, useAlarmClock = true)
         }
     }
 
@@ -228,7 +328,7 @@ class PrayerNotificationScheduler(private val context: Context) {
     }
 
     fun scheduleDailyOccasionAlarm(timeZoneId: String? = prefs.getString(KEY_TIMEZONE, null)) {
-        val manager = alarmManager ?: return
+        if (alarmManager == null) return
         val tz = PrayerTimeCalculator.resolveTimeZone(timeZoneId)
         val now = System.currentTimeMillis()
         val cal = Calendar.getInstance(tz).apply {
@@ -252,7 +352,33 @@ class PrayerNotificationScheduler(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        scheduleExactOrInexact(cal.timeInMillis, pendingIntent)
+        scheduleExactOrInexact(cal.timeInMillis, pendingIntent, useAlarmClock = false)
+    }
+
+    fun scheduleDailyMidnightReschedule(timeZoneId: String? = prefs.getString(KEY_TIMEZONE, null)) {
+        if (alarmManager == null) return
+        val tz = PrayerTimeCalculator.resolveTimeZone(timeZoneId)
+        val now = System.currentTimeMillis()
+        val cal = Calendar.getInstance(tz).apply {
+            timeInMillis = now
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 2)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            if (timeInMillis <= now + 5_000L) {
+                add(Calendar.DAY_OF_YEAR, 1)
+            }
+        }
+        val intent = Intent(context, PrayerNotificationReceiver::class.java).apply {
+            action = PrayerNotificationReceiver.ACTION_MIDNIGHT_RESCHEDULE
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            MIDNIGHT_RESCHEDULE_REQUEST_CODE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        scheduleExactOrInexact(cal.timeInMillis, pendingIntent, useAlarmClock = false)
     }
 
     fun resolveCurrentActiveOccasion(): ReligiousOccasion? {
@@ -276,45 +402,87 @@ class PrayerNotificationScheduler(private val context: Context) {
     }
 
     fun rescheduleFromCache() {
-        val fajr = prefs.getString(KEY_FAJR, null) ?: return
-        val sunrise = prefs.getString(KEY_SUNRISE, null) ?: return
-        val dhuhr = prefs.getString(KEY_DHUHR, null) ?: return
-        val asr = prefs.getString(KEY_ASR, null) ?: return
-        val maghrib = prefs.getString(KEY_MAGHRIB, null) ?: return
-        val isha = prefs.getString(KEY_ISHA, null) ?: return
+        val tzId = prefs.getString(KEY_TIMEZONE, null)
+        val todayKey = currentDateKey(tzId)
+        val cachedDateKey = prefs.getString(KEY_TIMINGS_DATE_KEY, null)
+        val hasCoords = prefs.getBoolean(KEY_HAS_COORDS, false)
+        val calcMethod = CalculationMethod.fromId(prefs.getInt(KEY_CALC_METHOD_ID, CalculationMethod.UMM_AL_QURA.id))
+        val asrSchool = AsrSchool.fromId(prefs.getInt(KEY_ASR_SCHOOL_ID, AsrSchool.SHAFI.id))
 
-        val timings = AladhanTimings(
-            imsak = prefs.getString(KEY_IMSAK, "").orEmpty(),
-            fajr = fajr,
-            sunrise = sunrise,
-            dhuhr = dhuhr,
-            asr = asr,
-            maghrib = maghrib,
-            isha = isha
-        )
-        val adjustments = PrayerAdjustments(
-            globalOffsetMinutes = prefs.getInt(KEY_ADJ_GLOBAL, 0),
-            fajrOffset = prefs.getInt(KEY_ADJ_FAJR, 0),
-            sunriseOffset = prefs.getInt(KEY_ADJ_SUNRISE, 0),
-            dhuhrOffset = prefs.getInt(KEY_ADJ_DHUHR, 0),
-            asrOffset = prefs.getInt(KEY_ADJ_ASR, 0),
-            maghribOffset = prefs.getInt(KEY_ADJ_MAGHRIB, 0),
-            ishaOffset = prefs.getInt(KEY_ADJ_ISHA, 0)
-        )
-        val settings = UserSettings(
-            athanEnabled = prefs.getBoolean(KEY_ATHAN_ENABLED, true),
-            fajrAthanEnabled = prefs.getBoolean(KEY_FAJR_ATHAN_ENABLED, true),
-            muezzinVoice = MuezzinVoice.fromId(prefs.getString(KEY_VOICE_ID, null)),
-            timeFormat = TimeFormat.fromCode(prefs.getInt(KEY_TIME_FORMAT, 12))
-        )
-        scheduleUpcomingPrayers(
-            timings = timings,
-            timeZoneId = prefs.getString(KEY_TIMEZONE, null),
-            cityName = prefs.getString(KEY_CITY_NAME, null),
-            adjustments = adjustments,
-            settings = settings
-        )
-        scheduleDailyOccasionAlarm()
+        val timings: AladhanTimings? = if (hasCoords && cachedDateKey != todayKey) {
+            val lat = java.lang.Double.longBitsToDouble(prefs.getLong(KEY_LATITUDE_BITS, 0L))
+            val lng = java.lang.Double.longBitsToDouble(prefs.getLong(KEY_LONGITUDE_BITS, 0L))
+            PrayerTimeCalculator.computeOfflineTimings(
+                latitude = lat,
+                longitude = lng,
+                timeZoneId = tzId,
+                method = calcMethod,
+                asrSchool = asrSchool
+            )
+        } else {
+            val fajr = prefs.getString(KEY_FAJR, null)
+            val sunrise = prefs.getString(KEY_SUNRISE, null)
+            val dhuhr = prefs.getString(KEY_DHUHR, null)
+            val asr = prefs.getString(KEY_ASR, null)
+            val maghrib = prefs.getString(KEY_MAGHRIB, null)
+            val isha = prefs.getString(KEY_ISHA, null)
+            if (fajr != null && sunrise != null && dhuhr != null && asr != null && maghrib != null && isha != null) {
+                AladhanTimings(
+                    imsak = prefs.getString(KEY_IMSAK, "").orEmpty(),
+                    fajr = fajr,
+                    sunrise = sunrise,
+                    dhuhr = dhuhr,
+                    asr = asr,
+                    maghrib = maghrib,
+                    isha = isha
+                )
+            } else if (hasCoords) {
+                val lat = java.lang.Double.longBitsToDouble(prefs.getLong(KEY_LATITUDE_BITS, 0L))
+                val lng = java.lang.Double.longBitsToDouble(prefs.getLong(KEY_LONGITUDE_BITS, 0L))
+                PrayerTimeCalculator.computeOfflineTimings(
+                    latitude = lat,
+                    longitude = lng,
+                    timeZoneId = tzId,
+                    method = calcMethod,
+                    asrSchool = asrSchool
+                )
+            } else {
+                null
+            }
+        }
+
+        if (timings != null) {
+            val adjustments = PrayerAdjustments(
+                globalOffsetMinutes = prefs.getInt(KEY_ADJ_GLOBAL, 0),
+                fajrOffset = prefs.getInt(KEY_ADJ_FAJR, 0),
+                sunriseOffset = prefs.getInt(KEY_ADJ_SUNRISE, 0),
+                dhuhrOffset = prefs.getInt(KEY_ADJ_DHUHR, 0),
+                asrOffset = prefs.getInt(KEY_ADJ_ASR, 0),
+                maghribOffset = prefs.getInt(KEY_ADJ_MAGHRIB, 0),
+                ishaOffset = prefs.getInt(KEY_ADJ_ISHA, 0)
+            )
+            val settings = UserSettings(
+                calcMethod = calcMethod,
+                asrSchool = asrSchool,
+                athanEnabled = prefs.getBoolean(KEY_ATHAN_ENABLED, true),
+                fajrAthanEnabled = prefs.getBoolean(KEY_FAJR_ATHAN_ENABLED, true),
+                muezzinVoice = MuezzinVoice.fromId(prefs.getString(KEY_VOICE_ID, null)),
+                athanPlayMode = getCachedAthanPlayMode(),
+                timeFormat = TimeFormat.fromCode(prefs.getInt(KEY_TIME_FORMAT, 12))
+            )
+            scheduleUpcomingPrayers(
+                timings = timings,
+                timeZoneId = tzId,
+                cityName = prefs.getString(KEY_CITY_NAME, null),
+                adjustments = adjustments,
+                settings = settings
+            )
+        } else {
+            scheduleMorningAthkarOnly(getAthkarScheduleConfig().morningTime24, tzId)
+            scheduleDailyMidnightReschedule(tzId)
+        }
+
+        scheduleDailyOccasionAlarm(tzId)
         rescheduleRemoteRemindersFromCache()
     }
 
@@ -327,7 +495,86 @@ class PrayerNotificationScheduler(private val context: Context) {
         return true
     }
 
+    fun saveOfflineBroadcasts(reminders: List<BroadcastReminder>) {
+        val array = JSONArray()
+        reminders.forEach { r ->
+            val obj = JSONObject().apply {
+                put("id", r.id)
+                put("authorUid", r.authorUid)
+                put("title", r.title)
+                put("body", r.body)
+                put("reminderKind", r.reminderKind)
+                put("persistenceMode", r.persistenceMode)
+                put("deliveryMode", r.deliveryMode)
+                put("scheduledTimeHHmm", r.scheduledTimeHHmm)
+                put("scheduledTimes", JSONArray(r.scheduledTimes))
+                put("audioUrl", r.audioUrl.orEmpty())
+                put("normalizedAudioUrl", r.normalizedAudioUrl.orEmpty())
+                put("audioSourceType", r.audioSourceType.orEmpty())
+                put("audioStorageMode", r.audioStorageMode.orEmpty())
+                put("audioAssetId", r.audioAssetId.orEmpty())
+                put("audioChunkCount", r.audioChunkCount ?: 0L)
+                put("audioFileExt", r.audioFileExt.orEmpty())
+                put("audioFileName", r.audioFileName.orEmpty())
+                put("audioMimeType", r.audioMimeType.orEmpty())
+                put("isActive", r.isActive)
+                put("triggerNonce", r.triggerNonce)
+                put("expiresAtMillis", r.expiresAtMillis ?: 0L)
+            }
+            array.put(obj)
+        }
+        prefs.edit().putString(KEY_OFFLINE_BROADCASTS_JSON, array.toString()).apply()
+    }
+
+    fun getOfflineBroadcasts(): List<BroadcastReminder> {
+        val raw = prefs.getString(KEY_OFFLINE_BROADCASTS_JSON, null) ?: return emptyList()
+        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        val now = System.currentTimeMillis()
+        val result = mutableListOf<BroadcastReminder>()
+        for (i in 0 until array.length()) {
+            val obj = array.optJSONObject(i) ?: continue
+            val timesArr = obj.optJSONArray("scheduledTimes")
+            val timesList = buildList {
+                if (timesArr != null) {
+                    for (tIdx in 0 until timesArr.length()) {
+                        val t = timesArr.optString(tIdx)
+                        if (t.isNotBlank()) add(t)
+                    }
+                }
+            }
+            val exp = obj.optLong("expiresAtMillis", 0L).takeIf { it > 0L }
+            val reminder = BroadcastReminder(
+                id = obj.optString("id"),
+                authorUid = obj.optString("authorUid"),
+                title = obj.optString("title"),
+                body = obj.optString("body"),
+                reminderKind = obj.optString("reminderKind", "text"),
+                persistenceMode = obj.optString("persistenceMode", "pinned"),
+                deliveryMode = obj.optString("deliveryMode", "now"),
+                scheduledTimeHHmm = obj.optString("scheduledTimeHHmm", "08:00"),
+                scheduledTimes = timesList,
+                audioUrl = obj.optString("audioUrl").takeIf { it.isNotBlank() },
+                normalizedAudioUrl = obj.optString("normalizedAudioUrl").takeIf { it.isNotBlank() },
+                audioSourceType = obj.optString("audioSourceType").takeIf { it.isNotBlank() },
+                audioStorageMode = obj.optString("audioStorageMode").takeIf { it.isNotBlank() },
+                audioAssetId = obj.optString("audioAssetId").takeIf { it.isNotBlank() },
+                audioChunkCount = obj.optLong("audioChunkCount", 0L).takeIf { it > 0L },
+                audioFileExt = obj.optString("audioFileExt").takeIf { it.isNotBlank() },
+                audioFileName = obj.optString("audioFileName").takeIf { it.isNotBlank() },
+                audioMimeType = obj.optString("audioMimeType").takeIf { it.isNotBlank() },
+                isActive = obj.optBoolean("isActive", true),
+                triggerNonce = obj.optLong("triggerNonce", 1L),
+                expiresAtMillis = exp
+            )
+            if (reminder.isActive && reminder.isNotExpired(now)) {
+                result.add(reminder)
+            }
+        }
+        return result
+    }
+
     fun syncRemoteReminders(reminders: List<BroadcastReminder>) {
+        saveOfflineBroadcasts(reminders)
         val now = System.currentTimeMillis()
         val array = JSONArray()
         reminders
@@ -349,6 +596,9 @@ class PrayerNotificationScheduler(private val context: Context) {
                     put("deliveryMode", r.deliveryMode)
                     put("timeHHmm", timeHHmm)
                     put("audioUrl", r.effectiveAudioUrl.orEmpty())
+                    put("audioAssetId", r.audioAssetId.orEmpty())
+                    put("audioChunkCount", r.audioChunkCount?.toInt() ?: 0)
+                    put("audioFileExt", r.audioFileExt.orEmpty())
                     put("expiresAtMillis", r.expiresAtMillis ?: 0L)
                 }
                 array.put(obj)
@@ -359,7 +609,6 @@ class PrayerNotificationScheduler(private val context: Context) {
 
     fun rescheduleRemoteRemindersFromCache() {
         val manager = alarmManager ?: return
-        // Cancel all previous remote slots first
         for (slot in 0 until MAX_REMOTE_SLOTS) {
             val cancelIntent = Intent(context, PrayerNotificationReceiver::class.java).apply {
                 action = PrayerNotificationReceiver.ACTION_REMOTE_REMINDER_ALARM
@@ -403,6 +652,9 @@ class PrayerNotificationScheduler(private val context: Context) {
                 putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_BODY, item.optString("body"))
                 putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_KIND, item.optString("kind"))
                 putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_URL, item.optString("audioUrl"))
+                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_ASSET_ID, item.optString("audioAssetId"))
+                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_CHUNK_COUNT, item.optInt("audioChunkCount", 0))
+                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_FILE_EXT, item.optString("audioFileExt"))
                 putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_EXPIRES_AT, expiresAt)
             }
             val pending = PendingIntent.getBroadcast(
@@ -411,7 +663,7 @@ class PrayerNotificationScheduler(private val context: Context) {
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            scheduleExactOrInexact(triggerMs, pending)
+            scheduleExactOrInexact(triggerMs, pending, useAlarmClock = true)
         }
     }
 
@@ -420,9 +672,11 @@ class PrayerNotificationScheduler(private val context: Context) {
         timeZoneId: String?,
         cityName: String?,
         adjustments: PrayerAdjustments,
-        settings: UserSettings
+        settings: UserSettings,
+        latitude: Double? = null,
+        longitude: Double? = null
     ) {
-        prefs.edit()
+        val editor = prefs.edit()
             .putString(KEY_IMSAK, timings.imsak)
             .putString(KEY_FAJR, timings.fajr)
             .putString(KEY_SUNRISE, timings.sunrise)
@@ -442,17 +696,53 @@ class PrayerNotificationScheduler(private val context: Context) {
             .putBoolean(KEY_ATHAN_ENABLED, settings.athanEnabled)
             .putBoolean(KEY_FAJR_ATHAN_ENABLED, settings.fajrAthanEnabled)
             .putString(KEY_VOICE_ID, settings.muezzinVoice.id)
+            .putString(KEY_ATHAN_PLAY_MODE_ID, settings.athanPlayMode.id)
             .putInt(KEY_TIME_FORMAT, settings.timeFormat.code)
-            .apply()
+            .putInt(KEY_CALC_METHOD_ID, settings.calcMethod.id)
+            .putInt(KEY_ASR_SCHOOL_ID, settings.asrSchool.id)
+            .putString(KEY_TIMINGS_DATE_KEY, currentDateKey(timeZoneId))
+
+        if (latitude != null && longitude != null) {
+            editor
+                .putBoolean(KEY_HAS_COORDS, true)
+                .putLong(KEY_LATITUDE_BITS, java.lang.Double.doubleToRawLongBits(latitude))
+                .putLong(KEY_LONGITUDE_BITS, java.lang.Double.doubleToRawLongBits(longitude))
+        }
+        editor.apply()
     }
 
-    private fun scheduleExactOrInexact(triggerAtMillis: Long, pendingIntent: PendingIntent) {
+    private fun currentDateKey(timeZoneId: String?): String {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        sdf.timeZone = PrayerTimeCalculator.resolveTimeZone(timeZoneId)
+        return sdf.format(Date())
+    }
+
+    private fun scheduleExactOrInexact(
+        triggerAtMillis: Long,
+        pendingIntent: PendingIntent,
+        useAlarmClock: Boolean
+    ) {
         val manager = alarmManager ?: return
-        val canExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            manager.canScheduleExactAlarms()
-        } else {
-            true
+        val canExact = canScheduleExactAlarms()
+        if (useAlarmClock && canExact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            val showIntent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val showPending = PendingIntent.getActivity(
+                context,
+                9100,
+                showIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val scheduledAlarmClock = runCatching {
+                manager.setAlarmClock(
+                    AlarmManager.AlarmClockInfo(triggerAtMillis, showPending),
+                    pendingIntent
+                )
+            }.isSuccess
+            if (scheduledAlarmClock) return
         }
+
         if (canExact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             runCatching {
                 manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
@@ -485,6 +775,7 @@ class PrayerNotificationScheduler(private val context: Context) {
         private const val OCCASION_DAILY_REQUEST_CODE = 4301
         private const val ATHKAR_MORNING_REQUEST_CODE = 4302
         private const val ATHKAR_EVENING_REQUEST_CODE = 4303
+        private const val MIDNIGHT_RESCHEDULE_REQUEST_CODE = 4304
         private const val BASE_REMOTE_REQUEST_CODE = 4600
         private const val MAX_REMOTE_SLOTS = 30
 
@@ -497,6 +788,12 @@ class PrayerNotificationScheduler(private val context: Context) {
         private const val KEY_ISHA = "isha"
         private const val KEY_TIMEZONE = "timezone"
         private const val KEY_CITY_NAME = "city_name"
+        private const val KEY_HAS_COORDS = "has_coords"
+        private const val KEY_LATITUDE_BITS = "latitude_bits"
+        private const val KEY_LONGITUDE_BITS = "longitude_bits"
+        private const val KEY_CALC_METHOD_ID = "calc_method_id"
+        private const val KEY_ASR_SCHOOL_ID = "asr_school_id"
+        private const val KEY_TIMINGS_DATE_KEY = "timings_date_key"
         private const val KEY_ADJ_GLOBAL = "adj_global"
         private const val KEY_ADJ_FAJR = "adj_fajr"
         private const val KEY_ADJ_SUNRISE = "adj_sunrise"
@@ -507,11 +804,13 @@ class PrayerNotificationScheduler(private val context: Context) {
         private const val KEY_ATHAN_ENABLED = "athan_enabled"
         private const val KEY_FAJR_ATHAN_ENABLED = "fajr_athan_enabled"
         private const val KEY_VOICE_ID = "voice_id"
+        private const val KEY_ATHAN_PLAY_MODE_ID = "athan_play_mode_id"
         private const val KEY_TIME_FORMAT = "time_format"
         private const val KEY_LAST_OCCASION_NOTIFIED = "last_occasion_notified"
         private const val KEY_ATHKAR_AUTO_ENABLED = "athkar_auto_enabled"
         private const val KEY_MORNING_ATHKAR_TIME_24 = "morning_athkar_time_24"
         private const val KEY_EVENING_ATHKAR_MAGHRIB_OFFSET = "evening_athkar_maghrib_offset"
         private const val KEY_REMOTE_REMINDERS_JSON = "remote_reminders_json"
+        private const val KEY_OFFLINE_BROADCASTS_JSON = "offline_broadcasts_json"
     }
 }

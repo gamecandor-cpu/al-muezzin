@@ -49,6 +49,7 @@ import com.example.util.QiblaSensorManager
 import com.example.util.RamadanAlarmReceiver
 import com.example.util.RamadanAlarmScheduler
 import com.example.util.RamadanStatus
+import com.example.util.RemoteUploadedAudioStore
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CancellationException
@@ -140,6 +141,8 @@ data class MuezzinUiState(
     val morningAthkarScheduleLabel: String = "6:00 ص",
     val eveningAthkarScheduleLabel: String = "قبل المغرب بساعة",
     val hasNotificationPermission: Boolean = false,
+    val canScheduleExactAlarms: Boolean = true,
+    val isIgnoringBatteryOptimizations: Boolean = false,
     val fcmToken: String? = null,
     val cloudSyncBusy: Boolean = false,
     val cloudSyncStatusAr: String? = null,
@@ -181,6 +184,9 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
             ),
             eveningAthkarScheduleLabel = notificationScheduler.getAthkarScheduleConfig().eveningRelationLabelAr(),
             hasNotificationPermission = PrayerNotificationReceiver.hasNotificationPermission(application),
+            canScheduleExactAlarms = notificationScheduler.canScheduleExactAlarms(),
+            isIgnoringBatteryOptimizations = notificationScheduler.isIgnoringBatteryOptimizations(),
+            broadcastReminders = notificationScheduler.getOfflineBroadcasts(),
             fcmToken = CloudSyncRepository.getLocalFcmToken(application)
         )
     )
@@ -200,6 +206,9 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
     init {
         PrayerNotificationReceiver.ensureAllChannels(appContext)
         notificationScheduler.scheduleDailyOccasionAlarm()
+        notificationScheduler.scheduleDailyMidnightReschedule()
+        notificationScheduler.scheduleMorningAthkarOnlyIfEnabled()
+        refreshBackgroundCapabilities()
         observePreferences()
         observeQuranPreferences()
         observeCompassSensor()
@@ -232,10 +241,25 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
         }
         notificationScheduler.syncRemoteReminders(activeList)
 
+        // Pre-warm cache for uploaded audio clips so repeated/scheduled pushes fire at the exact same instant
+        activeList.forEach { reminder ->
+            if (reminder.isUploadedAudio) {
+                RemoteUploadedAudioStore.prefetchInBackground(
+                    context = appContext,
+                    assetId = reminder.audioAssetId,
+                    chunkCount = reminder.audioChunkCount?.toInt() ?: 0,
+                    fileExt = reminder.audioFileExt
+                )
+            }
+        }
+
         val newlyTriggered = mutableListOf<BroadcastReminder>()
         activeList.forEach { reminder ->
             val shouldTriggerNow = reminder.deliveryMode == "now" || reminder.triggerNonce > 1L
+            val updatedAtMs = reminder.updatedAt?.toDate()?.time
+            val isFreshPush = updatedAtMs == null || (now - updatedAtMs) <= 15 * 60 * 1000L
             if (shouldTriggerNow &&
+                isFreshPush &&
                 notificationScheduler.markRemoteTriggerHandledIfNew(reminder.id, reminder.triggerNonce)
             ) {
                 newlyTriggered.add(reminder)
@@ -246,7 +270,10 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
                         title = reminder.title,
                         body = msgBody,
                         reminderId = reminder.id,
-                        audioUrl = reminder.effectiveAudioUrl
+                        audioUrl = reminder.effectiveAudioUrl,
+                        audioAssetId = reminder.audioAssetId,
+                        audioChunkCount = reminder.audioChunkCount?.toInt() ?: 0,
+                        audioFileExt = reminder.audioFileExt
                     )
                 }
             }
@@ -261,7 +288,10 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
                 title = latestAudio.title,
                 body = latestAudio.body.ifBlank { latestAudio.title },
                 audioUrl = latestAudio.effectiveAudioUrl.orEmpty(),
-                remoteId = latestAudio.id
+                remoteId = latestAudio.id,
+                audioAssetId = latestAudio.audioAssetId,
+                audioChunkCount = latestAudio.audioChunkCount?.toInt() ?: 0,
+                audioFileExt = latestAudio.audioFileExt
             )
         }
 
@@ -296,17 +326,24 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
             val title = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_TITLE).orEmpty()
             val body = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_BODY).orEmpty()
             val audioUrl = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_URL).orEmpty()
+            val audioAssetId = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_ASSET_ID)
+            val audioChunkCount = intent.getIntExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_CHUNK_COUNT, 0)
+            val audioFileExt = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_FILE_EXT)
             val reminderId = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_ID)
             if (title.isNotBlank()) {
                 _events.tryEmit(title)
             }
-            if (audioUrl.isNotBlank() && !MorningEveningAthkarService.playbackState.value.isPlaying) {
+            val hasAudioTarget = audioUrl.isNotBlank() || (!audioAssetId.isNullOrBlank() && audioChunkCount > 0)
+            if (hasAudioTarget && !MorningEveningAthkarService.playbackState.value.isPlaying) {
                 MorningEveningAthkarService.startRemote(
                     context = appContext,
                     title = title.ifBlank { "تذكير من موقع الإدارة" },
                     body = body.ifBlank { title },
                     audioUrl = audioUrl,
-                    remoteId = reminderId
+                    remoteId = reminderId,
+                    audioAssetId = audioAssetId,
+                    audioChunkCount = audioChunkCount,
+                    audioFileExt = audioFileExt
                 )
             }
             intent.action = Intent.ACTION_MAIN
@@ -515,10 +552,22 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
             if (cityHHmm == morning24 && lastAthkarAutoTriggeredKey != "$dayStamp:morning") {
                 lastAthkarAutoTriggeredKey = "$dayStamp:morning"
                 MorningEveningAthkarService.start(appContext, AthkarAudioType.MORNING)
+                PrayerNotificationReceiver.showCloudPushNotification(
+                    context = appContext,
+                    title = AthkarAudioType.MORNING.titleAr,
+                    body = AthkarAudioType.MORNING.subtitleAr,
+                    reminderId = "athkar_${AthkarAudioType.MORNING.id}"
+                )
                 _events.tryEmit("حان الآن موعد أذكار الصباح")
             } else if (cityHHmm == evening24 && lastAthkarAutoTriggeredKey != "$dayStamp:evening") {
                 lastAthkarAutoTriggeredKey = "$dayStamp:evening"
                 MorningEveningAthkarService.start(appContext, AthkarAudioType.EVENING)
+                PrayerNotificationReceiver.showCloudPushNotification(
+                    context = appContext,
+                    title = AthkarAudioType.EVENING.titleAr,
+                    body = AthkarAudioType.EVENING.subtitleAr,
+                    reminderId = "athkar_${AthkarAudioType.EVENING.id}"
+                )
                 _events.tryEmit("حان الآن موعد أذكار المساء")
             }
         }
@@ -548,14 +597,20 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun resyncScheduledNotifications() {
-        val timings = currentTimings ?: return
+        val timings = currentTimings
         val snapshot = _uiState.value
+        if (timings == null) {
+            notificationScheduler.scheduleMorningAthkarOnlyIfEnabled()
+            return
+        }
         notificationScheduler.scheduleUpcomingPrayers(
             timings = timings,
             timeZoneId = snapshot.timeZoneId,
             cityName = snapshot.locationName,
             adjustments = snapshot.adjustments,
-            settings = snapshot.settings
+            settings = snapshot.settings,
+            latitude = snapshot.coordinates?.latitude,
+            longitude = snapshot.coordinates?.longitude
         )
         notificationScheduler.scheduleDailyOccasionAlarm(snapshot.timeZoneId)
     }
@@ -689,9 +744,40 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private suspend fun fetchPrayerTimes(location: SavedLocation, settings: UserSettings) {
-        _uiState.update { it.copy(prayersState = PrayersLoadState.Loading) }
+        val initialTz = location.timeZoneId.ifBlank { TimeZone.getDefault().id }
+        val offlineTimings = notificationScheduler.getOrComputeOfflineTimings(
+            latitude = location.latitude,
+            longitude = location.longitude,
+            timeZoneId = initialTz,
+            method = settings.calcMethod,
+            asrSchool = settings.asrSchool
+        )
+        currentTimings = offlineTimings
+        val fallbackDay = PrayerTimeCalculator.currentHijriDayFallback(initialTz)
+        val fallbackMonth = PrayerTimeCalculator.currentHijriMonthFallback(initialTz)
+        val fallbackYear = PrayerTimeCalculator.currentHijriYearFallback(initialTz)
+        val fallbackOccasions = PrayerTimeCalculator.computeReligiousOccasions(
+            hijriYear = fallbackYear,
+            hijriMonth = fallbackMonth,
+            hijriDay = fallbackDay
+        )
+        _uiState.update {
+            it.copy(
+                timeZoneId = initialTz,
+                hijriDate = PrayerTimeCalculator.offlineHijriDateFormatted(initialTz),
+                hijriDay = fallbackDay,
+                hijriMonth = fallbackMonth,
+                hijriYear = fallbackYear,
+                religiousOccasions = fallbackOccasions,
+                isRamadanMonth = PrayerTimeCalculator.isRamadanMonth(fallbackMonth),
+                gregorianDate = PrayerTimeCalculator.offlineGregorianReadable(initialTz)
+            )
+        }
+        recomputePrayerDisplay()
+        resyncScheduledNotifications()
+        syncRamadanAlarms()
+
         try {
-            val initialTz = location.timeZoneId.ifBlank { TimeZone.getDefault().id }
             val initialDateStr = dateStringForTimeZone(initialTz)
             var response = aladhanApi.getTimings(
                 date = initialDateStr,
@@ -749,14 +835,7 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to fetch Aladhan prayer times: ${e.message}")
-            _uiState.update {
-                it.copy(
-                    prayersState = PrayersLoadState.Error(
-                        "فشل تحميل المواقيت. تحقق من اتصال الإنترنت وأعد المحاولة."
-                    )
-                )
-            }
+            Log.w(TAG, "Offline mode: keeping astronomical calculation (${e.message})")
         }
     }
 
@@ -1095,26 +1174,41 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // Notifications, Athkar Audio & Cloud Sync actions
+    fun refreshBackgroundCapabilities() {
+        val notifGranted = PrayerNotificationReceiver.hasNotificationPermission(appContext)
+        val exactGranted = notificationScheduler.canScheduleExactAlarms()
+        val batteryIgnored = notificationScheduler.isIgnoringBatteryOptimizations()
+        _uiState.update {
+            it.copy(
+                hasNotificationPermission = notifGranted,
+                canScheduleExactAlarms = exactGranted,
+                isIgnoringBatteryOptimizations = batteryIgnored
+            )
+        }
+        PrayerNotificationReceiver.ensureAllChannels(appContext)
+        resyncScheduledNotifications()
+        syncRamadanAlarms()
+        if (notifGranted) {
+            notifyActiveOccasionIfNeeded()
+        }
+    }
+
     fun refreshNotificationPermissionStatus() {
-        val granted = PrayerNotificationReceiver.hasNotificationPermission(appContext)
-        _uiState.update { it.copy(hasNotificationPermission = granted) }
+        refreshBackgroundCapabilities()
     }
 
     fun onNotificationPermissionResult(granted: Boolean) {
-        _uiState.update { it.copy(hasNotificationPermission = granted) }
+        refreshBackgroundCapabilities()
         if (granted) {
-            PrayerNotificationReceiver.ensureAllChannels(appContext)
-            resyncScheduledNotifications()
-            notifyActiveOccasionIfNeeded()
             _events.tryEmit("تم تفعيل إشعارات الأذان والأذكار والمناسبات بنجاح")
         } else {
-            _events.tryEmit("يمكنك تفعيل الإشعارات لاحقاً من الإعدادات")
+            _events.tryEmit("الإشعارات غير مفعّلة — يرجى تفعيلها لضمان سماع الأذان والأذكار")
         }
     }
 
     fun sendTestNotification() {
         val granted = PrayerNotificationReceiver.hasNotificationPermission(appContext)
-        _uiState.update { it.copy(hasNotificationPermission = granted) }
+        refreshBackgroundCapabilities()
         if (!granted) {
             _events.tryEmit("يرجى السماح بالإشعارات أولاً لإرسال التنبيه")
             return
@@ -1164,17 +1258,21 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun playRemoteReminderAudio(reminder: BroadcastReminder) {
-        val url = reminder.effectiveAudioUrl ?: return
+        val url = reminder.effectiveAudioUrl.orEmpty()
+        if (url.isBlank() && !reminder.isUploadedAudio) return
         val started = MorningEveningAthkarService.startRemote(
             context = appContext,
             title = reminder.title,
             body = reminder.body.ifBlank { reminder.title },
             audioUrl = url,
-            remoteId = reminder.id
+            remoteId = reminder.id,
+            audioAssetId = reminder.audioAssetId,
+            audioChunkCount = reminder.audioChunkCount?.toInt() ?: 0,
+            audioFileExt = reminder.audioFileExt
         )
         _events.tryEmit(
             if (started) "جاري تشغيل: ${reminder.title}"
-            else "تعذر تشغيل رابط الصوت"
+            else "تعذر تشغيل المقطع الصوتي"
         )
     }
 

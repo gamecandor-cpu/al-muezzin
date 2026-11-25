@@ -94,6 +94,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Schedule
@@ -148,6 +149,9 @@ fun HomeScreen(
     onStopAthan: () -> Unit = {},
     onStopAthkarAudio: () -> Unit = {},
     onPlayRemoteReminderAudio: (BroadcastReminder) -> Unit = {},
+    onRequestNotifications: () -> Unit = {},
+    onOpenExactAlarmSettings: () -> Unit = {},
+    onOpenBatterySettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showCitySheet by remember { mutableStateOf(false) }
@@ -206,6 +210,27 @@ fun HomeScreen(
                     ActiveOccasionHomeBanner(
                         occasion = occasion,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            if (!uiState.hasNotificationPermission ||
+                !uiState.canScheduleExactAlarms ||
+                !uiState.isIgnoringBatteryOptimizations
+            ) {
+                item {
+                    MandatoryBackgroundSetupBanner(
+                        hasNotificationPermission = uiState.hasNotificationPermission,
+                        canScheduleExactAlarms = uiState.canScheduleExactAlarms,
+                        isIgnoringBatteryOptimizations = uiState.isIgnoringBatteryOptimizations,
+                        onFixSetup = {
+                            when {
+                                !uiState.hasNotificationPermission -> onRequestNotifications()
+                                !uiState.canScheduleExactAlarms -> onOpenExactAlarmSettings()
+                                else -> onOpenBatterySettings()
+                            }
+                        },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                     )
                 }
             }
@@ -421,6 +446,78 @@ fun HomeScreen(
             onStopAthan = onStopAthan,
             onDismiss = { selectedPrayerForVirtue = null }
         )
+    }
+}
+
+@Composable
+private fun MandatoryBackgroundSetupBanner(
+    hasNotificationPermission: Boolean,
+    canScheduleExactAlarms: Boolean,
+    isIgnoringBatteryOptimizations: Boolean,
+    onFixSetup: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val detailText = when {
+        !hasNotificationPermission -> stringResource(R.string.home_notif_banner_notif_missing)
+        !canScheduleExactAlarms -> stringResource(R.string.home_notif_banner_alarm_missing)
+        else -> stringResource(R.string.home_notif_banner_battery_missing)
+    }
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = if (!hasNotificationPermission) CrimsonContainer else NavyElevated,
+        border = BorderStroke(
+            1.dp,
+            if (!hasNotificationPermission) CrimsonBright else AmberStar.copy(alpha = 0.85f)
+        ),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("home_background_setup_banner")
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.NotificationsActive,
+                contentDescription = null,
+                tint = if (!hasNotificationPermission) CrimsonBright else AmberStar,
+                modifier = Modifier.size(22.dp)
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.home_notif_banner_title),
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = IceWhite
+                )
+                Text(
+                    text = detailText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = WarmHighlight
+                )
+            }
+            Button(
+                onClick = onFixSetup,
+                colors = ButtonDefaults.buttonColors(containerColor = CrimsonRed),
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .testTag("home_fix_notifications_button")
+            ) {
+                Text(
+                    text = stringResource(R.string.home_notif_banner_action),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
 

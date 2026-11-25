@@ -11,14 +11,18 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.data.model.AthanPlayMode
+import com.example.data.model.MuezzinVoice
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -68,15 +72,32 @@ class MorningEveningAthkarService : Service() {
                 stopPlaybackAndSelf()
                 START_NOT_STICKY
             }
+            ACTION_START_ATHAN -> {
+                val prayerNameAr = intent.getStringExtra(EXTRA_PRAYER_NAME_AR).orEmpty().ifBlank { "الصلاة" }
+                val cityName = intent.getStringExtra(EXTRA_CITY_NAME).orEmpty()
+                val voice = MuezzinVoice.fromId(intent.getStringExtra(EXTRA_VOICE_ID))
+                val playMode = AthanPlayMode.fromId(intent.getStringExtra(EXTRA_ATHAN_PLAY_MODE_ID))
+                startAthanPlayback(prayerNameAr, cityName, voice, playMode)
+                START_NOT_STICKY
+            }
             ACTION_START_REMOTE -> {
                 val url = intent.getStringExtra(EXTRA_REMOTE_URL).orEmpty()
                 val title = intent.getStringExtra(EXTRA_REMOTE_TITLE).orEmpty().ifBlank { "تذكير صوتي" }
                 val body = intent.getStringExtra(EXTRA_REMOTE_BODY).orEmpty().ifBlank { title }
                 val remoteId = intent.getStringExtra(EXTRA_REMOTE_ID)
-                if (url.isNotBlank()) {
-                    startRemotePlayback(remoteId, title, body, url)
-                } else {
-                    stopPlaybackAndSelf()
+                val assetId = intent.getStringExtra(EXTRA_REMOTE_ASSET_ID)
+                val chunkCount = intent.getIntExtra(EXTRA_REMOTE_CHUNK_COUNT, 0)
+                val fileExt = intent.getStringExtra(EXTRA_REMOTE_FILE_EXT)
+                when {
+                    !assetId.isNullOrBlank() && chunkCount > 0 -> {
+                        startRemoteAssetPlayback(remoteId, title, body, assetId, chunkCount, fileExt)
+                    }
+                    url.isNotBlank() -> {
+                        startRemotePlayback(remoteId, title, body, url)
+                    }
+                    else -> {
+                        stopPlaybackAndSelf()
+                    }
                 }
                 START_NOT_STICKY
             }
@@ -126,12 +147,87 @@ class MorningEveningAthkarService : Service() {
         startForeground(NOTIFICATION_ID, notification)
     }
 
+    private fun startAthanPlayback(
+        prayerNameAr: String,
+        cityName: String,
+        voice: MuezzinVoice,
+        playMode: AthanPlayMode
+    ) {
+        releasePlayer()
+        val title = if (prayerNameAr == "الفجر") "أذان الفجر" else "أذان $prayerNameAr"
+        val body = buildString {
+            append("بصوت ${voice.arabicLabel}")
+            if (cityName.isNotBlank()) append(" • $cityName")
+        }
+        startForegroundNotification(title, body)
+        _playbackState.value = AthkarAudioPlaybackState(
+            activeType = null,
+            remoteTitle = title,
+            remoteId = "athan_${voice.id}",
+            isPlaying = true
+        )
+
+        runCatching {
+            val player = MediaPlayer().apply {
+                setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                resources.openRawResourceFd(voice.rawResId).use { afd ->
+                    setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                }
+                setOnCompletionListener {
+                    stopPlaybackAndSelf()
+                }
+                setOnErrorListener { _, what, extra ->
+                    Log.w(TAG, "Athan foreground MediaPlayer error what=$what extra=$extra")
+                    stopPlaybackAndSelf()
+                    true
+                }
+                prepare()
+                start()
+            }
+            mediaPlayer = player
+
+            if (playMode == AthanPlayMode.PARTIAL) {
+                serviceScope.launch {
+                    val totalMs = runCatching { player.duration.takeIf { it > 0 } ?: 20_000 }.getOrDefault(20_000)
+                    val partialTargetMs = minOf(20_000L, totalMs.toLong())
+                    val fadeDurationMs = minOf(2_000L, partialTargetMs / 4L)
+                    val steadyMs = (partialTargetMs - fadeDurationMs).coerceAtLeast(0L)
+                    delay(steadyMs)
+                    val steps = 15
+                    val stepDelay = (fadeDurationMs / steps).coerceAtLeast(30L)
+                    for (s in steps - 1 downTo 0) {
+                        val current = mediaPlayer
+                        if (current !== player) return@launch
+                        val vol = s.toFloat() / steps.toFloat()
+                        runCatching { player.setVolume(vol, vol) }
+                        delay(stepDelay)
+                    }
+                    withContext(Dispatchers.Main) {
+                        if (mediaPlayer === player) {
+                            stopPlaybackAndSelf()
+                        }
+                    }
+                }
+            }
+        }.onFailure { e ->
+            Log.e(TAG, "Failed to start foreground Athan playback", e)
+            stopPlaybackAndSelf()
+        }
+    }
+
     private fun startPlayback(type: AthkarAudioType) {
         releasePlayer()
         startForegroundNotification(type.titleAr, type.subtitleAr)
 
         runCatching {
             val player = MediaPlayer().apply {
+                setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -202,11 +298,77 @@ class MorningEveningAthkarService : Service() {
         }
     }
 
+    private fun startRemoteAssetPlayback(
+        remoteId: String?,
+        title: String,
+        body: String,
+        assetId: String,
+        chunkCount: Int,
+        fileExt: String?
+    ) {
+        releasePlayer()
+        startForegroundNotification(title, body)
+        _playbackState.value = AthkarAudioPlaybackState(
+            activeType = null,
+            remoteTitle = title,
+            remoteId = remoteId,
+            isPlaying = true
+        )
+
+        serviceScope.launch {
+            val cachedOrFetched = RemoteUploadedAudioStore.getOrFetchAudioFile(
+                context = applicationContext,
+                assetId = assetId,
+                chunkCount = chunkCount,
+                fileExt = fileExt
+            )
+            withContext(Dispatchers.Main) {
+                if (cachedOrFetched != null && cachedOrFetched.exists() && cachedOrFetched.length() > 0L) {
+                    playLocalFile(cachedOrFetched.absolutePath)
+                } else {
+                    Log.w(TAG, "Uploaded audio asset=$assetId unavailable; using local fallback")
+                    startLocalFallback(R.raw.athkar_morning)
+                }
+            }
+        }
+    }
+
+    private fun playLocalFile(filePath: String) {
+        releasePlayer()
+        runCatching {
+            val player = MediaPlayer().apply {
+                setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                setDataSource(filePath)
+                setOnCompletionListener {
+                    stopPlaybackAndSelf()
+                }
+                setOnErrorListener { _, what, extra ->
+                    Log.w(TAG, "Local cached remote audio error what=$what extra=$extra")
+                    startLocalFallback(R.raw.athkar_morning)
+                    true
+                }
+                prepare()
+                start()
+            }
+            mediaPlayer = player
+        }.onFailure { e ->
+            Log.e(TAG, "Failed to play local cached uploaded audio", e)
+            startLocalFallback(R.raw.athkar_morning)
+        }
+    }
+
     private fun playRemoteMediaPlayer(url: String) {
         releasePlayer()
         runCatching {
             val headers = mapOf("User-Agent" to RemoteAudioVerifier.USER_AGENT)
             val player = MediaPlayer().apply {
+                setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -239,6 +401,7 @@ class MorningEveningAthkarService : Service() {
         releasePlayer()
         runCatching {
             val player = MediaPlayer().apply {
+                setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -315,16 +478,51 @@ class MorningEveningAthkarService : Service() {
         private const val CHANNEL_ID = "athkar_audio_playback_channel"
         private const val NOTIFICATION_ID = 5500
         const val ACTION_START = "com.example.ATHKAR_AUDIO_START"
+        const val ACTION_START_ATHAN = "com.example.ATHKAR_AUDIO_START_ATHAN"
         const val ACTION_START_REMOTE = "com.example.ATHKAR_AUDIO_START_REMOTE"
         const val ACTION_STOP = "com.example.ATHKAR_AUDIO_STOP"
         const val EXTRA_ATHKAR_TYPE = "extra_athkar_type"
+        const val EXTRA_PRAYER_NAME_AR = "extra_prayer_name_ar"
+        const val EXTRA_CITY_NAME = "extra_city_name"
+        const val EXTRA_VOICE_ID = "extra_voice_id"
+        const val EXTRA_ATHAN_PLAY_MODE_ID = "extra_athan_play_mode_id"
         const val EXTRA_REMOTE_ID = "extra_remote_id"
         const val EXTRA_REMOTE_URL = "extra_remote_url"
         const val EXTRA_REMOTE_TITLE = "extra_remote_title"
         const val EXTRA_REMOTE_BODY = "extra_remote_body"
+        const val EXTRA_REMOTE_ASSET_ID = "extra_remote_asset_id"
+        const val EXTRA_REMOTE_CHUNK_COUNT = "extra_remote_chunk_count"
+        const val EXTRA_REMOTE_FILE_EXT = "extra_remote_file_ext"
 
         private val _playbackState = MutableStateFlow(AthkarAudioPlaybackState())
         val playbackState: StateFlow<AthkarAudioPlaybackState> = _playbackState.asStateFlow()
+
+        fun startAthan(
+            context: Context,
+            prayerNameAr: String,
+            cityName: String,
+            voice: MuezzinVoice,
+            playMode: AthanPlayMode = AthanPlayMode.FULL
+        ): Boolean {
+            return runCatching {
+                val intent = Intent(context, MorningEveningAthkarService::class.java).apply {
+                    action = ACTION_START_ATHAN
+                    putExtra(EXTRA_PRAYER_NAME_AR, prayerNameAr)
+                    putExtra(EXTRA_CITY_NAME, cityName)
+                    putExtra(EXTRA_VOICE_ID, voice.id)
+                    putExtra(EXTRA_ATHAN_PLAY_MODE_ID, playMode.id)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                true
+            }.getOrElse { e ->
+                Log.w(TAG, "Unable to start foreground Athan service: ${e.message}")
+                false
+            }
+        }
 
         fun start(context: Context, type: AthkarAudioType): Boolean {
             return runCatching {
@@ -348,18 +546,31 @@ class MorningEveningAthkarService : Service() {
             context: Context,
             title: String,
             body: String,
-            audioUrl: String,
-            remoteId: String? = null
+            audioUrl: String = "",
+            remoteId: String? = null,
+            audioAssetId: String? = null,
+            audioChunkCount: Int = 0,
+            audioFileExt: String? = null
         ): Boolean {
-            val resolved = AudioUrlResolver.resolve(audioUrl)
-            if (!resolved.isValidHttps) return false
+            val hasAsset = !audioAssetId.isNullOrBlank() && audioChunkCount > 0
+            val resolved = if (audioUrl.isNotBlank()) AudioUrlResolver.resolve(audioUrl) else null
+            val hasValidUrl = resolved?.isValidHttps == true
+            if (!hasAsset && !hasValidUrl) return false
+
             return runCatching {
                 val intent = Intent(context, MorningEveningAthkarService::class.java).apply {
                     action = ACTION_START_REMOTE
                     putExtra(EXTRA_REMOTE_ID, remoteId)
                     putExtra(EXTRA_REMOTE_TITLE, title)
                     putExtra(EXTRA_REMOTE_BODY, body)
-                    putExtra(EXTRA_REMOTE_URL, resolved.directPlayUrl)
+                    if (hasValidUrl) {
+                        putExtra(EXTRA_REMOTE_URL, resolved?.directPlayUrl)
+                    }
+                    if (hasAsset) {
+                        putExtra(EXTRA_REMOTE_ASSET_ID, audioAssetId)
+                        putExtra(EXTRA_REMOTE_CHUNK_COUNT, audioChunkCount)
+                        putExtra(EXTRA_REMOTE_FILE_EXT, audioFileExt)
+                    }
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)

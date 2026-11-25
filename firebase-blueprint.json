@@ -107,6 +107,31 @@
           "type": "string",
           "description": "Detected audio format or provider label"
         },
+        "audioStorageMode": {
+          "type": "string",
+          "enum": ["url", "firestore_chunks"],
+          "description": "Whether audio comes from an HTTPS URL or uploaded chunks in Firestore"
+        },
+        "audioAssetId": {
+          "type": "string",
+          "description": "Asset ID referencing /broadcast_audio_assets/{assetId} for uploaded audio"
+        },
+        "audioChunkCount": {
+          "type": "integer",
+          "description": "Number of chunks stored in /broadcast_audio_chunks for this asset"
+        },
+        "audioFileExt": {
+          "type": "string",
+          "description": "Sanitized lowercase audio file extension (e.g. mp3, m4a, wav)"
+        },
+        "audioFileName": {
+          "type": "string",
+          "description": "Original uploaded audio filename"
+        },
+        "audioMimeType": {
+          "type": "string",
+          "description": "Validated audio MIME type"
+        },
         "isActive": {
           "type": "boolean",
           "description": "Whether this reminder is currently active on user devices"
@@ -143,6 +168,102 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "BroadcastAudioAsset": {
+      "title": "BroadcastAudioAsset",
+      "description": "Metadata for an audio clip uploaded from the admin's device onto the web portal",
+      "type": "object",
+      "properties": {
+        "authorUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the admin who uploaded the audio"
+        },
+        "fileName": {
+          "type": "string",
+          "description": "Display filename of the uploaded audio"
+        },
+        "mimeType": {
+          "type": "string",
+          "description": "Audio MIME type (audio/* or application/ogg)"
+        },
+        "fileExt": {
+          "type": "string",
+          "description": "Lowercase alphanumeric file extension"
+        },
+        "totalBytes": {
+          "type": "integer",
+          "description": "Original binary size in bytes (max 10 MB)"
+        },
+        "chunkCount": {
+          "type": "integer",
+          "description": "Number of Base64 chunks stored in broadcast_audio_chunks"
+        },
+        "durationSec": {
+          "type": "integer",
+          "description": "Audio duration in seconds"
+        },
+        "isReady": {
+          "type": "boolean",
+          "description": "True once all audio chunks have been uploaded"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "authorUid",
+        "fileName",
+        "mimeType",
+        "fileExt",
+        "totalBytes",
+        "chunkCount",
+        "durationSec",
+        "isReady",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "BroadcastAudioChunk": {
+      "title": "BroadcastAudioChunk",
+      "description": "Immutable Base64-encoded binary slice of an admin-uploaded audio clip",
+      "type": "object",
+      "properties": {
+        "authorUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the admin who uploaded the chunk"
+        },
+        "assetId": {
+          "type": "string",
+          "description": "Parent BroadcastAudioAsset document ID"
+        },
+        "chunkIndex": {
+          "type": "integer",
+          "description": "Zero-based sequential chunk index"
+        },
+        "dataBase64": {
+          "type": "string",
+          "description": "Base64-encoded binary slice (max 700,000 chars)"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        }
+      },
+      "required": [
+        "authorUid",
+        "assetId",
+        "chunkIndex",
+        "dataBase64",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -157,6 +278,18 @@
         "$ref": "#/entities/BroadcastReminder"
       },
       "description": "Admin-managed remote text and audio reminders synchronized to the app"
+    },
+    "/broadcast_audio_assets/{assetId}": {
+      "schema": {
+        "$ref": "#/entities/BroadcastAudioAsset"
+      },
+      "description": "Uploaded audio clip metadata published by admin for instant app playback"
+    },
+    "/broadcast_audio_chunks/{chunkId}": {
+      "schema": {
+        "$ref": "#/entities/BroadcastAudioChunk"
+      },
+      "description": "Binary audio chunks belonging to BroadcastAudioAsset documents"
     }
   }
 }
