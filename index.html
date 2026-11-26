@@ -12,7 +12,7 @@
       <span class="brand-mark">🕌</span>
       <div>
         <h1>لوحة تحكم المؤذن</h1>
-        <p class="muted">إرسال إشعارات نصية وصوتية إلى التطبيق</p>
+        <p class="muted">خطّة مجانية (Spark) · التسجيل عبر Firebase Realtime DB · الإرسال عبر FCM v1</p>
       </div>
     </div>
     <div class="session">
@@ -23,16 +23,6 @@
   </header>
 
   <main>
-    <!-- Login -->
-    <section id="loginView" class="card auth">
-      <h2>تسجيل الدخول</h2>
-      <p class="muted">يستخدم حساب Firebase Authentication المخصّص للإدارة.</p>
-      <label>البريد الإلكتروني<input id="email" type="email" autocomplete="username" placeholder="admin@example.com" /></label>
-      <label>كلمة المرور<input id="password" type="password" autocomplete="current-password" /></label>
-      <button id="loginBtn" class="primary">دخول</button>
-      <p id="loginError" class="error"></p>
-    </section>
-
     <!-- Setup notice when config is missing -->
     <section id="setupView" class="card auth hidden">
       <h2>لا يوجد إعداد Firebase</h2>
@@ -40,6 +30,35 @@
         انسخ الملف <code>firebase-config.example.js</code> إلى <code>firebase-config.js</code> وضع بداخله
         بيانات مشروع Firebase (Project settings → Your apps → Web app).
       </p>
+    </section>
+
+    <!-- Login panel: combines email/password login + service account upload -->
+    <section id="loginView" class="card auth hidden">
+      <h2>تسجيل الدخول</h2>
+      <p class="muted">يستخدم حساب Firebase Authentication المخصّص للإدارة.</p>
+      <label>البريد الإلكتروني<input id="email" type="email" autocomplete="username" placeholder="admin@example.com" /></label>
+      <label>كلمة المرور<input id="password" type="password" autocomplete="current-password" /></label>
+      <button id="loginBtn" class="primary">دخول</button>
+      <p id="loginError" class="error"></p>
+
+      <hr class="soft" />
+
+      <details>
+        <summary><strong>مفتاح FCM v1 (حساب الخدمة)</strong> · يُحفظ في متصفحك فقط ولا يُرسل إلى أي خادم</summary>
+        <p class="muted small">
+          من Firebase Console ← Project settings ← Service accounts ← <em>Generate new private key</em>.
+          الملف يبقى في <code>localStorage</code> ولا يخرج من المتصفح.
+        </p>
+        <label>اختر ملف <code>service-account.json</code>
+          <input id="saFile" type="file" accept=".json,application/json" />
+        </label>
+        <details>
+          <summary>أو ألصق محتوى الملف يدوياً</summary>
+          <textarea id="saPaste" rows="6" placeholder='{"type":"service_account","project_id":"...","private_key":"-----BEGIN ...","client_email":"..."}'></textarea>
+          <button id="saPasteBtn" class="ghost small">حفظ من النص</button>
+        </details>
+        <p id="saStatus" class="muted small"></p>
+      </details>
     </section>
 
     <!-- Dashboard -->
@@ -64,9 +83,10 @@
         <label>النص<textarea id="pushBody" rows="3" placeholder="نص الإشعار الذي يظهر للمستخدم"></textarea></label>
 
         <div id="audioBlock" class="hidden">
-          <label>ملف الصوت (اختياري)<input id="audioFile" type="file" accept="audio/*" /></label>
+          <label>ملف الصوت (اختياري، يُرفع إلى catbox.moe حتى لا نحتاج Firebase Storage)
+            <input id="audioFile" type="file" accept="audio/*" />
+          </label>
           <label>أو رابط صوت مباشر<input id="audioUrl" type="url" placeholder="https://example.com/athan.mp3" /></label>
-          <p class="muted small">يُرفع الملف إلى Firebase Storage، ويشغّله التطبيق مباشرةً عند وصول الإشعار.</p>
         </div>
 
         <label>الهدف
@@ -75,7 +95,7 @@
           </select>
         </label>
 
-        <button id="sendBtn" class="primary">إرسال عبر Firebase (لكل الأجهزة)</button>
+        <button id="sendBtn" class="primary">إرسال عبر FCM v1 (لكل الأجهزة)</button>
         <button id="sendLocalBtn" class="ghost">إرسال فوري لجهازي (عبر رابط التطبيق)</button>
         <p id="backendHint" class="muted small"></p>
         <p id="sendStatus" class="muted"></p>
@@ -83,10 +103,10 @@
 
       <div id="tab-devices" class="tab-panel card hidden">
         <h2>الأجهزة المسجّلة <span id="deviceCount" class="badge">0</span></h2>
-        <p class="muted small">كل جهاز يسجّل رمز FCM الخاص به عند تشغيل التطبيق، وتظهر هنا مباشرة (تحتاج Firestore مفعّلاً).</p>
+        <p class="muted small">بيانات الأجهزة مخزّنة في Firebase Realtime Database — تعمل على الخطة المجانية (Spark).</p>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>المعرّف</th><th>إصدار التطبيق</th><th>المنصة</th><th>آخر ظهور</th></tr></thead>
+            <thead><tr><th>المعرّف</th><th>إصدار التطبيق</th><th>المنصة</th><th>الجهاز</th><th>آخر ظهور</th></tr></thead>
             <tbody id="deviceRows"></tbody>
           </table>
         </div>
@@ -103,9 +123,7 @@
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
