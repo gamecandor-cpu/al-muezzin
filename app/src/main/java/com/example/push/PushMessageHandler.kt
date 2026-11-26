@@ -29,7 +29,8 @@ object PushMessageHandler {
                     body = message.body.ifBlank { message.title },
                     audioUrl = message.audioUrl,
                     remoteId = "push_${message.id}",
-                    localAudioPath = null
+                    localAudioPath = null,
+                    allowLocalFallback = false  // play exactly what the dashboard sent
                 )
             } catch (e: Exception) {
                 Log.w(TAG, "audio playback failed: ${e.message}")

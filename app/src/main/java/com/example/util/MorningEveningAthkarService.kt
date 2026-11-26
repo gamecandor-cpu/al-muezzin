@@ -86,12 +86,13 @@ class MorningEveningAthkarService : Service() {
                 val title = intent.getStringExtra(EXTRA_REMOTE_TITLE).orEmpty().ifBlank { "تذكير صوتي" }
                 val body = intent.getStringExtra(EXTRA_REMOTE_BODY).orEmpty().ifBlank { title }
                 val remoteId = intent.getStringExtra(EXTRA_REMOTE_ID)
+                val allowFallback = intent.getBooleanExtra(EXTRA_ALLOW_LOCAL_FALLBACK, true)
                 when {
                     localPath.isNotBlank() && java.io.File(localPath).exists() -> {
                         startLocalFilePlayback(remoteId, title, body, localPath)
                     }
                     url.isNotBlank() -> {
-                        startRemotePlayback(remoteId, title, body, url)
+                        startRemotePlayback(remoteId, title, body, url, allowFallback)
                     }
                     else -> {
                         stopPlaybackAndSelf()
@@ -289,7 +290,7 @@ class MorningEveningAthkarService : Service() {
         }
     }
 
-    private fun startRemotePlayback(remoteId: String?, title: String, body: String, rawUrl: String) {
+    private fun startRemotePlayback(remoteId: String?, title: String, body: String, rawUrl: String, allowLocalFallback: Boolean = true) {
         releasePlayer()
         val resolved = AudioUrlResolver.resolve(rawUrl)
         if (!resolved.isValidHttps) {
@@ -306,6 +307,14 @@ class MorningEveningAthkarService : Service() {
 
         // فحص فعلي للرابط: إذا كان صفحة HTML بلا صوت مستخرج نستخدم الاحتياطي، وإلا نجرب التشغيل المباشر بـ MediaPlayer مع User-Agent
         serviceScope.launch {
+            // For a direct audio file (e.g. an uploaded MP3) play exactly what was
+            // sent — no HTML pre-check, and never silently swap in the built-in athkar.
+            if (resolved.likelyDirectAudio) {
+                withContext(Dispatchers.Main) {
+                    playRemoteMediaPlayer(resolved.directPlayUrl, allowLocalFallback)
+                }
+                return@launch
+            }
             val inspection = RemoteAudioVerifier.inspect(resolved.directPlayUrl)
             val targetUrl = inspection.extractedAudioUrl
                 ?.let { AudioUrlResolver.resolve(it).directPlayUrl }
@@ -314,9 +323,9 @@ class MorningEveningAthkarService : Service() {
                 ?: resolved.directPlayUrl
 
             if (inspection.isHtmlContent && inspection.extractedAudioUrl.isNullOrBlank()) {
-                Log.w(TAG, "Remote link returned HTML page with no audio: ${inspection.detail}; using local fallback")
+                Log.w(TAG, "Remote link returned HTML page with no audio: ${inspection.detail}")
                 withContext(Dispatchers.Main) {
-                    startLocalFallback(R.raw.athkar_morning)
+                    if (allowLocalFallback) startLocalFallback(R.raw.athkar_morning) else stopPlaybackAndSelf()
                 }
                 return@launch
             }
@@ -326,13 +335,13 @@ class MorningEveningAthkarService : Service() {
                 Log.w(TAG, "Remote pre-check inconclusive (${inspection.detail}); attempting direct MediaPlayer stream anyway")
             }
             withContext(Dispatchers.Main) {
-                playRemoteMediaPlayer(targetUrl)
+                playRemoteMediaPlayer(targetUrl, allowLocalFallback)
             }
         }
     }
 
 
-    private fun playRemoteMediaPlayer(url: String) {
+    private fun playRemoteMediaPlayer(url: String, allowLocalFallback: Boolean = true) {
         releasePlayer()
         runCatching {
             val headers = mapOf("User-Agent" to RemoteAudioVerifier.USER_AGENT)
@@ -352,16 +361,16 @@ class MorningEveningAthkarService : Service() {
                     stopPlaybackAndSelf()
                 }
                 setOnErrorListener { _, what, extra ->
-                    Log.w(TAG, "Remote audio MediaPlayer error what=$what extra=$extra; falling back to local audio")
-                    startLocalFallback(R.raw.athkar_morning)
+                    Log.w(TAG, "Remote audio MediaPlayer error what=$what extra=$extra")
+                    if (allowLocalFallback) startLocalFallback(R.raw.athkar_morning) else stopPlaybackAndSelf()
                     true
                 }
                 prepareAsync()
             }
             mediaPlayer = player
         }.onFailure { e ->
-            Log.e(TAG, "Failed to stream remote audio playback; using local fallback", e)
-            startLocalFallback(R.raw.athkar_morning)
+            Log.e(TAG, "Failed to stream remote audio playback", e)
+            if (allowLocalFallback) startLocalFallback(R.raw.athkar_morning) else stopPlaybackAndSelf()
         }
     }
 
@@ -458,6 +467,7 @@ class MorningEveningAthkarService : Service() {
         const val EXTRA_REMOTE_ID = "extra_remote_id"
         const val EXTRA_REMOTE_URL = "extra_remote_url"
         const val EXTRA_LOCAL_AUDIO_PATH = "extra_local_audio_path"
+        const val EXTRA_ALLOW_LOCAL_FALLBACK = "extra_allow_local_fallback"
         const val EXTRA_REMOTE_TITLE = "extra_remote_title"
         const val EXTRA_REMOTE_BODY = "extra_remote_body"
 
@@ -515,7 +525,8 @@ class MorningEveningAthkarService : Service() {
             body: String,
             audioUrl: String = "",
             remoteId: String? = null,
-            localAudioPath: String? = null
+            localAudioPath: String? = null,
+            allowLocalFallback: Boolean = true
         ): Boolean {
             val hasLocalFile = !localAudioPath.isNullOrBlank() && java.io.File(localAudioPath).exists()
             val resolved = if (audioUrl.isNotBlank()) AudioUrlResolver.resolve(audioUrl) else null
@@ -528,6 +539,7 @@ class MorningEveningAthkarService : Service() {
                     putExtra(EXTRA_REMOTE_ID, remoteId)
                     putExtra(EXTRA_REMOTE_TITLE, title)
                     putExtra(EXTRA_REMOTE_BODY, body)
+                    putExtra(EXTRA_ALLOW_LOCAL_FALLBACK, allowLocalFallback)
                     if (hasLocalFile) {
                         putExtra(EXTRA_LOCAL_AUDIO_PATH, localAudioPath)
                     }

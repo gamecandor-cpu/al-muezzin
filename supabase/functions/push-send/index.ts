@@ -101,7 +101,15 @@ async function sendOne(accessToken: string, projectId: string, fcmToken: string,
           body: String(data.body ?? ""),
           audio_url: String(data.audio_url ?? ""),
         },
-        android: { priority: "high" },
+        android: {
+          priority: "high",
+          notification: {
+            channel_id: "athkar_alerts_channel",
+            sound: "default",
+            notification_priority: "PRIORITY_HIGH",
+            default_vibrate_timings: true,
+          },
+        },
       },
     }),
   });
