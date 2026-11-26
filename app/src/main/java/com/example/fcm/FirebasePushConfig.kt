@@ -25,9 +25,14 @@ object FirebasePushConfig {
             BuildConfig.FIREBASE_SENDER_ID.isNotBlank() &&
             BuildConfig.FIREBASE_API_KEY.isNotBlank()
 
-    /** Backend that receives device registrations (Cloud Function). */
+    /**
+     * Legacy Firebase toolchain required a Cloud Function URL to receive
+     * device registrations. On the free (Spark) plan that backend cannot be
+     * deployed, so all device writes now go directly to Realtime Database.
+     * Keep this getter only so older call sites continue to compile.
+     */
     val registrationUrl: String
-        get() = BuildConfig.PUSH_BACKEND_URL.trim()
+        get() = ""
 
     /** Initializes Firebase once per process. Safe to call repeatedly. */
     fun initialize(context: Context): Boolean {

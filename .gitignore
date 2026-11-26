@@ -28,3 +28,8 @@ ui-debug.log
 my-upload-key.jks
 *.keystore
 المؤذن تطبيق.apk
+
+# Service-account keys and generated dashboard artifacts — never commit
+*FCM-Key.json
+*fcm-sa.json
+*-sa.json
