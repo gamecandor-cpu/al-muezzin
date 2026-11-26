@@ -106,6 +106,8 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.onesignal)
+  implementation(platform(libs.firebase.bom))
+  implementation(libs.firebase.messaging)
   implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)

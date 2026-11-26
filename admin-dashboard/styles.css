@@ -1,0 +1,152 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --panel-2: #1e222b;
+  --line: #2a2f3a;
+  --text: #e8ecf4;
+  --muted: #96a0b5;
+  --accent: #2fb6a6;
+  --accent-2: #f0b429;
+  --danger: #e05c6e;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", "Noto Kufi Arabic", Tahoma, sans-serif;
+  line-height: 1.7;
+}
+
+.hidden { display: none !important; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.error { color: var(--danger); min-height: 20px; }
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 28px;
+  background: linear-gradient(90deg, #141821, #10131a);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand-mark { font-size: 34px; }
+.brand h1 { margin: 0; font-size: 20px; }
+.brand p { margin: 0; font-size: 13px; }
+.session { display: flex; align-items: center; gap: 12px; }
+
+main { max-width: 1080px; margin: 0 auto; padding: 26px 20px 60px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px;
+  margin-bottom: 20px;
+}
+
+.auth { max-width: 460px; margin: 40px auto; }
+.auth h2 { margin-top: 0; }
+
+label { display: block; margin: 12px 0; font-size: 14px; color: var(--muted); }
+input, textarea, select {
+  width: 100%;
+  margin-top: 6px;
+  padding: 11px 13px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 15px;
+}
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 11px 18px;
+  font-size: 15px;
+  font-family: inherit;
+}
+button:hover { border-color: var(--accent); }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06221f;
+  font-weight: 700;
+  margin-top: 10px;
+}
+button.ghost { background: transparent; }
+a.ghost {
+  display: inline-block;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 14px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 14px;
+}
+a.ghost:hover { border-color: var(--accent); }
+
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.tab { border-radius: 999px; }
+.tab.active { background: var(--accent); border-color: var(--accent); color: #06221f; font-weight: 700; }
+
+.row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+.row .grow { flex: 1 1 260px; }
+
+.segmented { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.segmented legend { color: var(--muted); font-size: 13px; padding: 0 6px; }
+.segmented label { display: inline-flex; align-items: center; gap: 6px; margin: 0 14px 0 0; color: var(--text); }
+.segmented input { width: auto; margin: 0; }
+
+.badge {
+  background: var(--accent-2);
+  color: #221803;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: right; padding: 10px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; }
+td { font-variant-numeric: tabular-nums; }
+
+.history { display: flex; flex-direction: column; gap: 10px; }
+.history-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--panel-2);
+}
+.history-item header { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--muted); }
+.history-item h3 { margin: 6px 0 2px; font-size: 16px; }
+.history-item audio { width: 100%; margin-top: 8px; }
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  inset-inline-start: 24px;
+  background: var(--accent);
+  color: #06221f;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-weight: 700;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+code { background: var(--panel-2); padding: 2px 6px; border-radius: 6px; direction: ltr; display: inline-block; }

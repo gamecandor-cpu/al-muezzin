@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>لوحة تحكم المؤذن | Al-Muezzin Control Panel</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">🕌</span>
+      <div>
+        <h1>لوحة تحكم المؤذن</h1>
+        <p class="muted">إرسال إشعارات نصية وصوتية إلى التطبيق</p>
+      </div>
+    </div>
+    <div class="session">
+      <a class="ghost" id="downloadApk" href="AlMuezzin.apk" download>تحميل التطبيق (APK)</a>
+      <span id="sessionUser" class="muted">غير مسجّل</span>
+      <button id="logoutBtn" class="ghost hidden">خروج</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Login -->
+    <section id="loginView" class="card auth">
+      <h2>تسجيل الدخول</h2>
+      <p class="muted">يستخدم حساب Firebase Authentication المخصّص للإدارة.</p>
+      <label>البريد الإلكتروني<input id="email" type="email" autocomplete="username" placeholder="admin@example.com" /></label>
+      <label>كلمة المرور<input id="password" type="password" autocomplete="current-password" /></label>
+      <button id="loginBtn" class="primary">دخول</button>
+      <p id="loginError" class="error"></p>
+    </section>
+
+    <!-- Setup notice when config is missing -->
+    <section id="setupView" class="card auth hidden">
+      <h2>لا يوجد إعداد Firebase</h2>
+      <p class="muted">
+        انسخ الملف <code>firebase-config.example.js</code> إلى <code>firebase-config.js</code> وضع بداخله
+        بيانات مشروع Firebase (Project settings → Your apps → Web app).
+      </p>
+    </section>
+
+    <!-- Dashboard -->
+    <section id="appView" class="hidden">
+      <nav class="tabs">
+        <button class="tab active" data-tab="compose">إرسال إشعار</button>
+        <button class="tab" data-tab="devices">الأجهزة</button>
+        <button class="tab" data-tab="history">السجل</button>
+      </nav>
+
+      <div id="tab-compose" class="tab-panel card">
+        <h2>إرسال إشعار جديد</h2>
+        <div class="row">
+          <fieldset class="segmented">
+            <legend>نوع الإشعار</legend>
+            <label><input type="radio" name="pushType" value="text" checked /> نصي</label>
+            <label><input type="radio" name="pushType" value="audio" /> صوتي</label>
+          </fieldset>
+          <label class="grow">العنوان<input id="pushTitle" type="text" placeholder="تنبيه من إدارة التطبيق" /></label>
+        </div>
+
+        <label>النص<textarea id="pushBody" rows="3" placeholder="نص الإشعار الذي يظهر للمستخدم"></textarea></label>
+
+        <div id="audioBlock" class="hidden">
+          <label>ملف الصوت (اختياري)<input id="audioFile" type="file" accept="audio/*" /></label>
+          <label>أو رابط صوت مباشر<input id="audioUrl" type="url" placeholder="https://example.com/athan.mp3" /></label>
+          <p class="muted small">يُرفع الملف إلى Firebase Storage، ويشغّله التطبيق مباشرةً عند وصول الإشعار.</p>
+        </div>
+
+        <label>الهدف
+          <select id="target">
+            <option value="all">كل الأجهزة المسجّلة</option>
+          </select>
+        </label>
+
+        <button id="sendBtn" class="primary">إرسال الآن</button>
+        <p id="sendStatus" class="muted"></p>
+      </div>
+
+      <div id="tab-devices" class="tab-panel card hidden">
+        <h2>الأجهزة المسجّلة <span id="deviceCount" class="badge">0</span></h2>
+        <p class="muted small">كل جهاز يسجّل رمز FCM الخاص به عند تشغيل التطبيق، وتظهر هنا مباشرة.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>المعرّف</th><th>إصدار التطبيق</th><th>المنصة</th><th>آخر ظهور</th></tr></thead>
+            <tbody id="deviceRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="tab-history" class="tab-panel card hidden">
+        <h2>سجل الإشعارات المرسلة</h2>
+        <div id="historyList" class="history"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -17,3 +17,15 @@ local.properties
 .env
 debug.keystore
 *-debug.log
+
+# Firebase (admin dashboard)
+admin-dashboard/firebase-config.js
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/
+
+# Release signing material and generated APKs
+my-upload-key.jks
+*.keystore
+المؤذن تطبيق.apk
