@@ -17,9 +17,6 @@ import com.example.data.model.PrayerType
 import com.example.data.model.ReligiousOccasion
 import com.example.data.model.TimeFormat
 import com.example.data.model.UserSettings
-import com.example.data.remote.BroadcastReminder
-import org.json.JSONArray
-import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -226,7 +223,6 @@ class PrayerNotificationScheduler(private val context: Context) {
             scheduleMorningAthkarOnly(getAthkarScheduleConfig().morningTime24, tzId)
             scheduleDailyMidnightReschedule(tzId)
             scheduleDailyOccasionAlarm(tzId)
-            rescheduleRemoteRemindersFromCache()
         }
     }
 
@@ -483,188 +479,54 @@ class PrayerNotificationScheduler(private val context: Context) {
         }
 
         scheduleDailyOccasionAlarm(tzId)
-        rescheduleRemoteRemindersFromCache()
+        schedulePortalReminders(PortalReminderStore.loadAll(context), tzId)
     }
 
-    fun markRemoteTriggerHandledIfNew(reminderId: String, triggerNonce: Long): Boolean {
-        if (reminderId.isBlank()) return false
-        val key = "remote_nonce_$reminderId"
-        val prev = prefs.getLong(key, -1L)
-        if (prev >= triggerNonce) return false
-        prefs.edit().putLong(key, triggerNonce).apply()
-        return true
-    }
-
-    fun saveOfflineBroadcasts(reminders: List<BroadcastReminder>) {
-        val array = JSONArray()
-        reminders.forEach { r ->
-            val obj = JSONObject().apply {
-                put("id", r.id)
-                put("authorUid", r.authorUid)
-                put("title", r.title)
-                put("body", r.body)
-                put("reminderKind", r.reminderKind)
-                put("persistenceMode", r.persistenceMode)
-                put("deliveryMode", r.deliveryMode)
-                put("scheduledTimeHHmm", r.scheduledTimeHHmm)
-                put("scheduledTimes", JSONArray(r.scheduledTimes))
-                put("audioUrl", r.audioUrl.orEmpty())
-                put("normalizedAudioUrl", r.normalizedAudioUrl.orEmpty())
-                put("audioSourceType", r.audioSourceType.orEmpty())
-                put("audioStorageMode", r.audioStorageMode.orEmpty())
-                put("audioAssetId", r.audioAssetId.orEmpty())
-                put("audioChunkCount", r.audioChunkCount ?: 0L)
-                put("audioFileExt", r.audioFileExt.orEmpty())
-                put("audioFileName", r.audioFileName.orEmpty())
-                put("audioMimeType", r.audioMimeType.orEmpty())
-                put("isActive", r.isActive)
-                put("triggerNonce", r.triggerNonce)
-                put("expiresAtMillis", r.expiresAtMillis ?: 0L)
-            }
-            array.put(obj)
-        }
-        prefs.edit().putString(KEY_OFFLINE_BROADCASTS_JSON, array.toString()).apply()
-    }
-
-    fun getOfflineBroadcasts(): List<BroadcastReminder> {
-        val raw = prefs.getString(KEY_OFFLINE_BROADCASTS_JSON, null) ?: return emptyList()
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
-        val now = System.currentTimeMillis()
-        val result = mutableListOf<BroadcastReminder>()
-        for (i in 0 until array.length()) {
-            val obj = array.optJSONObject(i) ?: continue
-            val timesArr = obj.optJSONArray("scheduledTimes")
-            val timesList = buildList {
-                if (timesArr != null) {
-                    for (tIdx in 0 until timesArr.length()) {
-                        val t = timesArr.optString(tIdx)
-                        if (t.isNotBlank()) add(t)
-                    }
-                }
-            }
-            val exp = obj.optLong("expiresAtMillis", 0L).takeIf { it > 0L }
-            val reminder = BroadcastReminder(
-                id = obj.optString("id"),
-                authorUid = obj.optString("authorUid"),
-                title = obj.optString("title"),
-                body = obj.optString("body"),
-                reminderKind = obj.optString("reminderKind", "text"),
-                persistenceMode = obj.optString("persistenceMode", "pinned"),
-                deliveryMode = obj.optString("deliveryMode", "now"),
-                scheduledTimeHHmm = obj.optString("scheduledTimeHHmm", "08:00"),
-                scheduledTimes = timesList,
-                audioUrl = obj.optString("audioUrl").takeIf { it.isNotBlank() },
-                normalizedAudioUrl = obj.optString("normalizedAudioUrl").takeIf { it.isNotBlank() },
-                audioSourceType = obj.optString("audioSourceType").takeIf { it.isNotBlank() },
-                audioStorageMode = obj.optString("audioStorageMode").takeIf { it.isNotBlank() },
-                audioAssetId = obj.optString("audioAssetId").takeIf { it.isNotBlank() },
-                audioChunkCount = obj.optLong("audioChunkCount", 0L).takeIf { it > 0L },
-                audioFileExt = obj.optString("audioFileExt").takeIf { it.isNotBlank() },
-                audioFileName = obj.optString("audioFileName").takeIf { it.isNotBlank() },
-                audioMimeType = obj.optString("audioMimeType").takeIf { it.isNotBlank() },
-                isActive = obj.optBoolean("isActive", true),
-                triggerNonce = obj.optLong("triggerNonce", 1L),
-                expiresAtMillis = exp
-            )
-            if (reminder.isActive && reminder.isNotExpired(now)) {
-                result.add(reminder)
-            }
-        }
-        return result
-    }
-
-    fun syncRemoteReminders(reminders: List<BroadcastReminder>) {
-        saveOfflineBroadcasts(reminders)
-        val now = System.currentTimeMillis()
-        val array = JSONArray()
-        reminders
-            .filter {
-                it.isActive &&
-                    it.isNotExpired(now) &&
-                    (it.deliveryMode == "daily" || it.deliveryMode == "scheduled")
-            }
-            .flatMap { r ->
-                r.allScheduledTimes.map { timeHHmm -> r to timeHHmm }
-            }
-            .take(MAX_REMOTE_SLOTS)
-            .forEach { (r, timeHHmm) ->
-                val obj = JSONObject().apply {
-                    put("id", r.id)
-                    put("title", r.title)
-                    put("body", r.body)
-                    put("kind", r.reminderKind)
-                    put("deliveryMode", r.deliveryMode)
-                    put("timeHHmm", timeHHmm)
-                    put("audioUrl", r.effectiveAudioUrl.orEmpty())
-                    put("audioAssetId", r.audioAssetId.orEmpty())
-                    put("audioChunkCount", r.audioChunkCount?.toInt() ?: 0)
-                    put("audioFileExt", r.audioFileExt.orEmpty())
-                    put("expiresAtMillis", r.expiresAtMillis ?: 0L)
-                }
-                array.put(obj)
-            }
-        prefs.edit().putString(KEY_REMOTE_REMINDERS_JSON, array.toString()).apply()
-        rescheduleRemoteRemindersFromCache()
-    }
-
-    fun rescheduleRemoteRemindersFromCache() {
+    fun schedulePortalReminders(
+        reminders: List<PortalReminder>,
+        timeZoneId: String? = prefs.getString(KEY_TIMEZONE, null)
+    ) {
         val manager = alarmManager ?: return
-        for (slot in 0 until MAX_REMOTE_SLOTS) {
+        val prevCount = prefs.getInt(KEY_PORTAL_ALARM_COUNT, 0)
+        for (i in 0 until prevCount) {
             val cancelIntent = Intent(context, PrayerNotificationReceiver::class.java).apply {
-                action = PrayerNotificationReceiver.ACTION_REMOTE_REMINDER_ALARM
+                action = PrayerNotificationReceiver.ACTION_PORTAL_REMINDER_ALARM
             }
-            val pending = PendingIntent.getBroadcast(
+            val pi = PendingIntent.getBroadcast(
                 context,
-                BASE_REMOTE_REQUEST_CODE + slot,
+                BASE_PORTAL_REMINDER_REQUEST_CODE + i,
                 cancelIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            manager.cancel(pending)
+            manager.cancel(pi)
         }
 
-        val rawJson = prefs.getString(KEY_REMOTE_REMINDERS_JSON, null) ?: return
-        val array = runCatching { JSONArray(rawJson) }.getOrNull() ?: return
+        val tz = PrayerTimeCalculator.resolveTimeZone(timeZoneId)
         val now = System.currentTimeMillis()
-        val tz = PrayerTimeCalculator.resolveTimeZone(prefs.getString(KEY_TIMEZONE, null))
         val baseCal = Calendar.getInstance(tz).apply { timeInMillis = now }
+        val activeScheduled = reminders.filter {
+            it.isActive && !it.isExpired(now) && (it.deliveryMode == "scheduled" || it.deliveryMode == "daily")
+        }
 
-        for (i in 0 until minOf(array.length(), MAX_REMOTE_SLOTS)) {
-            val item = array.optJSONObject(i) ?: continue
-            val expiresAt = item.optLong("expiresAtMillis", 0L)
-            if (expiresAt > 0L && now > expiresAt) continue
-
-            val deliveryMode = item.optString("deliveryMode", "daily")
-            val timeHHmm = item.optString("timeHHmm", "08:00")
-            var triggerMs = computeTimeOnDateMillis(baseCal, timeHHmm, addDays = 0)
+        activeScheduled.forEachIndexed { index, reminder ->
+            val time24 = PrayerTimeCalculator.cleanTime24(reminder.scheduledTimeHHmm).ifBlank { "08:00" }
+            var triggerMs = computeTimeOnDateMillis(baseCal, time24, addDays = 0)
             if (triggerMs <= now + 5_000L) {
-                if (deliveryMode == "daily") {
-                    triggerMs = computeTimeOnDateMillis(baseCal, timeHHmm, addDays = 1)
-                } else {
-                    continue
-                }
+                triggerMs = computeTimeOnDateMillis(baseCal, time24, addDays = 1)
             }
-            if (expiresAt > 0L && triggerMs > expiresAt) continue
-
             val intent = Intent(context, PrayerNotificationReceiver::class.java).apply {
-                action = PrayerNotificationReceiver.ACTION_REMOTE_REMINDER_ALARM
-                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_ID, item.optString("id"))
-                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_TITLE, item.optString("title"))
-                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_BODY, item.optString("body"))
-                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_KIND, item.optString("kind"))
-                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_URL, item.optString("audioUrl"))
-                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_ASSET_ID, item.optString("audioAssetId"))
-                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_CHUNK_COUNT, item.optInt("audioChunkCount", 0))
-                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_FILE_EXT, item.optString("audioFileExt"))
-                putExtra(PrayerNotificationReceiver.EXTRA_REMINDER_EXPIRES_AT, expiresAt)
+                action = PrayerNotificationReceiver.ACTION_PORTAL_REMINDER_ALARM
+                putExtra(PrayerNotificationReceiver.EXTRA_PORTAL_REMINDER_ID, reminder.id)
             }
-            val pending = PendingIntent.getBroadcast(
+            val pi = PendingIntent.getBroadcast(
                 context,
-                BASE_REMOTE_REQUEST_CODE + i,
+                BASE_PORTAL_REMINDER_REQUEST_CODE + index,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            scheduleExactOrInexact(triggerMs, pending, useAlarmClock = true)
+            scheduleExactOrInexact(triggerMs, pi, useAlarmClock = true)
         }
+        prefs.edit().putInt(KEY_PORTAL_ALARM_COUNT, activeScheduled.size).apply()
     }
 
     private fun saveScheduleCache(
@@ -776,8 +638,8 @@ class PrayerNotificationScheduler(private val context: Context) {
         private const val ATHKAR_MORNING_REQUEST_CODE = 4302
         private const val ATHKAR_EVENING_REQUEST_CODE = 4303
         private const val MIDNIGHT_RESCHEDULE_REQUEST_CODE = 4304
-        private const val BASE_REMOTE_REQUEST_CODE = 4600
-        private const val MAX_REMOTE_SLOTS = 30
+        private const val BASE_PORTAL_REMINDER_REQUEST_CODE = 4600
+        private const val KEY_PORTAL_ALARM_COUNT = "portal_alarm_count"
 
         private const val KEY_IMSAK = "imsak"
         private const val KEY_FAJR = "fajr"
@@ -810,7 +672,5 @@ class PrayerNotificationScheduler(private val context: Context) {
         private const val KEY_ATHKAR_AUTO_ENABLED = "athkar_auto_enabled"
         private const val KEY_MORNING_ATHKAR_TIME_24 = "morning_athkar_time_24"
         private const val KEY_EVENING_ATHKAR_MAGHRIB_OFFSET = "evening_athkar_maghrib_offset"
-        private const val KEY_REMOTE_REMINDERS_JSON = "remote_reminders_json"
-        private const val KEY_OFFLINE_BROADCASTS_JSON = "offline_broadcasts_json"
     }
 }

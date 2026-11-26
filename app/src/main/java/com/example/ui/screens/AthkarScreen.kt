@@ -23,18 +23,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.NightsStay
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.TouchApp
-import androidx.compose.material.icons.filled.WbSunny
+import com.example.ui.theme.AppIcons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -80,7 +73,6 @@ import com.example.data.model.DhikrItem
 import com.example.data.model.IslamicContent
 import com.example.data.model.TasbihState
 import com.example.data.model.TimeFormat
-import com.example.data.remote.BroadcastReminder
 import com.example.ui.theme.AmberStar
 import com.example.ui.theme.CrimsonBright
 import com.example.ui.theme.CrimsonContainer
@@ -94,9 +86,11 @@ import com.example.ui.theme.NavyPrimary
 import com.example.ui.theme.ObsidianBlack
 import com.example.ui.theme.SilverText
 import com.example.ui.theme.WarmHighlight
+import com.example.ui.components.PortalRemindersSection
 import com.example.util.AthkarAudioPlaybackState
 import com.example.util.AthkarAudioType
 import com.example.util.AthkarScheduleConfig
+import com.example.util.PortalReminder
 import com.example.util.PrayerTimeCalculator
 
 @Composable
@@ -109,15 +103,17 @@ fun AthkarHubScreen(
     timeFormat: TimeFormat = TimeFormat.HOUR_12,
     morningScheduleLabel: String = "6:00 ص",
     eveningScheduleLabel: String = "قبل المغرب بساعة",
-    broadcastReminders: List<BroadcastReminder> = emptyList(),
+    portalReminders: List<PortalReminder> = emptyList(),
     onIncrementAthkar: (String, Int) -> Unit,
     onResetAthkarItem: (String) -> Unit,
     onResetAllAthkar: () -> Unit,
     onPlayAthkarAudio: (AthkarAudioType) -> Unit = {},
-    onPlayRemoteReminderAudio: (BroadcastReminder) -> Unit = {},
     onStopAthkarAudio: () -> Unit = {},
     onToggleAthkarAuto: (Boolean) -> Unit = {},
     onUpdateAthkarSchedule: (String, Int) -> Unit = { _, _ -> },
+    onPlayPortalReminder: (PortalReminder) -> Unit = {},
+    onTogglePortalReminder: (String) -> Unit = {},
+    onDeletePortalReminder: (String) -> Unit = {},
     onTasbihIncrement: () -> Unit,
     onTasbihReset: () -> Unit,
     onTasbihSelectDhikr: (String) -> Unit,
@@ -171,7 +167,7 @@ fun AthkarHubScreen(
                     ) {
                         SubTabButton(
                             label = stringResource(R.string.athkar_tab_list),
-                            icon = Icons.Filled.AutoStories,
+                            icon = AppIcons.AutoStories,
                             selected = selectedSubTab == 0,
                             onClick = { selectedSubTab = 0 },
                             modifier = Modifier
@@ -180,7 +176,7 @@ fun AthkarHubScreen(
                         )
                         SubTabButton(
                             label = stringResource(R.string.athkar_tab_tasbih),
-                            icon = Icons.Filled.TouchApp,
+                            icon = AppIcons.TouchApp,
                             selected = selectedSubTab == 1,
                             onClick = { selectedSubTab = 1 },
                             modifier = Modifier
@@ -200,15 +196,17 @@ fun AthkarHubScreen(
                     timeFormat = timeFormat,
                     morningScheduleLabel = morningScheduleLabel,
                     eveningScheduleLabel = eveningScheduleLabel,
-                    broadcastReminders = broadcastReminders,
+                    portalReminders = portalReminders,
                     onIncrementAthkar = onIncrementAthkar,
                     onResetAthkarItem = onResetAthkarItem,
                     onResetAllAthkar = onResetAllAthkar,
                     onPlayAthkarAudio = onPlayAthkarAudio,
-                    onPlayRemoteReminderAudio = onPlayRemoteReminderAudio,
                     onStopAthkarAudio = onStopAthkarAudio,
                     onToggleAthkarAuto = onToggleAthkarAuto,
                     onUpdateAthkarSchedule = onUpdateAthkarSchedule,
+                    onPlayPortalReminder = onPlayPortalReminder,
+                    onTogglePortalReminder = onTogglePortalReminder,
+                    onDeletePortalReminder = onDeletePortalReminder,
                     modifier = Modifier.weight(1f)
                 )
             } else {
@@ -269,15 +267,17 @@ private fun AthkarListView(
     timeFormat: TimeFormat,
     morningScheduleLabel: String,
     eveningScheduleLabel: String,
-    broadcastReminders: List<BroadcastReminder>,
+    portalReminders: List<PortalReminder>,
     onIncrementAthkar: (String, Int) -> Unit,
     onResetAthkarItem: (String) -> Unit,
     onResetAllAthkar: () -> Unit,
     onPlayAthkarAudio: (AthkarAudioType) -> Unit,
-    onPlayRemoteReminderAudio: (BroadcastReminder) -> Unit,
     onStopAthkarAudio: () -> Unit,
     onToggleAthkarAuto: (Boolean) -> Unit,
     onUpdateAthkarSchedule: (String, Int) -> Unit,
+    onPlayPortalReminder: (PortalReminder) -> Unit,
+    onTogglePortalReminder: (String) -> Unit,
+    onDeletePortalReminder: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -310,13 +310,24 @@ private fun AthkarListView(
                 timeFormat = timeFormat,
                 morningScheduleLabel = morningScheduleLabel,
                 eveningScheduleLabel = eveningScheduleLabel,
-                remoteAudioReminders = broadcastReminders.filter { it.isAudio },
                 onPlay = onPlayAthkarAudio,
-                onPlayRemote = onPlayRemoteReminderAudio,
                 onStop = onStopAthkarAudio,
                 onToggleAuto = onToggleAthkarAuto,
                 onUpdateSchedule = onUpdateAthkarSchedule
             )
+        }
+
+        if (portalReminders.isNotEmpty()) {
+            item {
+                PortalRemindersSection(
+                    reminders = portalReminders,
+                    athkarAudioState = athkarAudioState,
+                    onPlayReminder = onPlayPortalReminder,
+                    onStopAudio = onStopAthkarAudio,
+                    onToggleActive = onTogglePortalReminder,
+                    onDeleteReminder = onDeletePortalReminder
+                )
+            }
         }
 
         item {
@@ -554,9 +565,7 @@ private fun AthkarAudioPlayerCard(
     timeFormat: TimeFormat,
     morningScheduleLabel: String,
     eveningScheduleLabel: String,
-    remoteAudioReminders: List<BroadcastReminder>,
     onPlay: (AthkarAudioType) -> Unit,
-    onPlayRemote: (BroadcastReminder) -> Unit,
     onStop: () -> Unit,
     onToggleAuto: (Boolean) -> Unit,
     onUpdateSchedule: (String, Int) -> Unit
@@ -605,7 +614,7 @@ private fun AthkarAudioPlayerCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                        imageVector = AppIcons.VolumeUp,
                         contentDescription = null,
                         tint = AmberStar,
                         modifier = Modifier.size(22.dp)
@@ -655,7 +664,7 @@ private fun AthkarAudioPlayerCard(
                         .testTag("play_morning_athkar_button")
                 ) {
                     Icon(
-                        imageVector = if (morningPlaying) Icons.Filled.Stop else Icons.Filled.WbSunny,
+                        imageVector = if (morningPlaying) AppIcons.Stop else AppIcons.WbSunny,
                         contentDescription = null,
                         tint = if (morningPlaying) Color.White else AmberStar,
                         modifier = Modifier.size(18.dp)
@@ -681,7 +690,7 @@ private fun AthkarAudioPlayerCard(
                         .testTag("play_evening_athkar_button")
                 ) {
                     Icon(
-                        imageVector = if (eveningPlaying) Icons.Filled.Stop else Icons.Filled.NightsStay,
+                        imageVector = if (eveningPlaying) AppIcons.Stop else AppIcons.NightsStay,
                         contentDescription = null,
                         tint = if (eveningPlaying) Color.White else WarmHighlight,
                         modifier = Modifier.size(18.dp)
@@ -719,52 +728,6 @@ private fun AthkarAudioPlayerCard(
                 )
             }
 
-            if (remoteAudioReminders.isNotEmpty()) {
-                remoteAudioReminders.forEach { rem ->
-                    val isRemotePlaying = audioState.isPlaying && audioState.remoteId == rem.id
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = NavyPrimary.copy(alpha = 0.7f),
-                        border = BorderStroke(1.dp, if (isRemotePlaying) AmberStar else NavyBorder),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Campaign,
-                                    contentDescription = null,
-                                    tint = CrimsonBright,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = rem.title,
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                    color = IceWhite
-                                )
-                            }
-                            IconButton(
-                                onClick = { if (isRemotePlaying) onStop() else onPlayRemote(rem) }
-                            ) {
-                                Icon(
-                                    imageVector = if (isRemotePlaying) Icons.Filled.Stop else Icons.Filled.PlayArrow,
-                                    contentDescription = if (isRemotePlaying) "إيقاف" else "تشغيل",
-                                    tint = if (isRemotePlaying) CrimsonBright else AmberStar
-                                )
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }

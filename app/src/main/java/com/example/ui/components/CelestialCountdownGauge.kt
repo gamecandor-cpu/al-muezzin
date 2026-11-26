@@ -333,7 +333,9 @@ fun RealisticHijriMoonIndicator(
 ) {
     val moonBitmap = ImageBitmap.imageResource(id = R.drawable.img_realistic_moon)
     val day = hijriDay.coerceIn(1, 30)
-    val isFullMoon = day in 13..16
+    val isFullMoon = day == 15
+    val isNewMoon = day == 30
+    val illumRatio = lunarIlluminationRatio(day)
     val phaseLabel = stringResource(moonPhaseLabelRes(day))
 
     // Bright silvery-warm moonlight lift on sunlit craters
@@ -344,6 +346,20 @@ fun RealisticHijriMoonIndicator(
                     1.10f, 0f, 0f, 0f, 10f,
                     0f, 1.09f, 0f, 0f, 10f,
                     0f, 0f, 1.05f, 0f, 8f,
+                    0f, 0f, 0f, 1f, 0f
+                )
+            )
+        )
+    }
+
+    // Cool faint night-side lunar surface for earthshine silhouette
+    val darkSideMoonFilter = remember {
+        ColorFilter.colorMatrix(
+            ColorMatrix(
+                floatArrayOf(
+                    0.26f, 0f, 0f, 0f, 0f,
+                    0f, 0.30f, 0f, 0f, 4f,
+                    0f, 0f, 0.44f, 0f, 12f,
                     0f, 0f, 0f, 1f, 0f
                 )
             )
@@ -375,8 +391,8 @@ fun RealisticHijriMoonIndicator(
 
                 val closenessToFull = when {
                     isFullMoon -> 1f
-                    day < 13 -> ((day - 1) / 12f).coerceIn(0f, 1f)
-                    else -> ((30 - day) / 13f).coerceIn(0f, 1f)
+                    day < 15 -> ((day - 1) / 14f).coerceIn(0f, 1f)
+                    else -> ((30 - day) / 15f).coerceIn(0f, 1f)
                 }
 
                 val topLeft = IntOffset(
@@ -388,12 +404,12 @@ fun RealisticHijriMoonIndicator(
 
                 if (isFullMoon) {
                     // Full circular moonlight halo + glowing realistic full Moon ("بدر كامل")
-                    val haloAlpha = 0.34f * glowPulse
+                    val haloAlpha = 0.36f * glowPulse
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
                                 Color(0xFFFDF8E7).copy(alpha = haloAlpha),
-                                Color(0xFFD6C7A3).copy(alpha = haloAlpha * 0.42f),
+                                Color(0xFFD6C7A3).copy(alpha = haloAlpha * 0.44f),
                                 Color.Transparent
                             ),
                             center = center,
@@ -410,11 +426,14 @@ fun RealisticHijriMoonIndicator(
                         colorFilter = sunlitMoonFilter
                     )
                 } else {
-                    // Lit-side soft glow anchored to the illuminated hemisphere so dark side stays transparent sky
                     val isWaxing = day <= 15
                     val glowOffsetX = if (isWaxing) moonRadius * 0.35f else -moonRadius * 0.35f
                     val glowCenter = Offset(center.x + glowOffsetX, center.y)
-                    val haloAlpha = (0.14f + 0.18f * closenessToFull) * glowPulse
+                    val haloAlpha = if (isNewMoon) {
+                        0.08f * glowPulse
+                    } else {
+                        (0.14f + 0.18f * closenessToFull) * glowPulse
+                    }
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
@@ -428,10 +447,28 @@ fun RealisticHijriMoonIndicator(
                         center = glowCenter
                     )
 
-                    // Clip strictly to the Hijri lunar phase (crescent / quarter / gibbous)
-                    // with zero full-circle earthshine underneath so crescents clearly look like a true Hilal
+                    // Faint night-side spherical silhouette (stronger on gibbous/new moon so daily shadow arc is unmistakably clear)
+                    val earthshineAlpha = when {
+                        isNewMoon -> 0.24f
+                        day in 8..22 -> 0.18f
+                        else -> 0.06f
+                    }
+                    drawImage(
+                        image = moonBitmap,
+                        dstOffset = topLeft,
+                        dstSize = dstSize,
+                        alpha = earthshineAlpha,
+                        colorFilter = darkSideMoonFilter
+                    )
+
+                    // Clip strictly to the exact Hijri lunar phase (crescent / quarter / gibbous)
                     val litPath = buildLunarPhasePath(center = center, radius = moonRadius, hijriDay = day)
                     val tiltDeg = if (isWaxing) 18f else -18f
+                    val terminatorX = if (isWaxing) {
+                        center.x + (1f - 2f * illumRatio) * moonRadius
+                    } else {
+                        center.x + (2f * illumRatio - 1f) * moonRadius
+                    }
 
                     rotate(degrees = tiltDeg, pivot = center) {
                         clipPath(litPath) {
@@ -441,30 +478,39 @@ fun RealisticHijriMoonIndicator(
                                     image = moonBitmap,
                                     dstOffset = topLeft,
                                     dstSize = dstSize,
+                                    alpha = if (isNewMoon) 0.55f else 1f,
                                     colorFilter = sunlitMoonFilter
                                 )
                             }
 
-                            // Subtle 3D spherical terminator shading near the shadow edge
-                            drawRect(
-                                brush = Brush.horizontalGradient(
-                                    colors = if (isWaxing) {
-                                        listOf(
-                                            Color.Black.copy(alpha = 0.28f),
-                                            Color.Transparent,
+                            // 3D spherical terminator shadow anchored right along the lunar terminator edge
+                            if (isWaxing) {
+                                val gradStart = (terminatorX - moonRadius * 0.10f)
+                                val gradEnd = (terminatorX + moonRadius * 0.42f).coerceAtLeast(gradStart + 2f)
+                                drawRect(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color.Black.copy(alpha = 0.42f),
                                             Color.Transparent
-                                        )
-                                    } else {
-                                        listOf(
-                                            Color.Transparent,
-                                            Color.Transparent,
-                                            Color.Black.copy(alpha = 0.28f)
-                                        )
-                                    },
-                                    startX = center.x - moonRadius,
-                                    endX = center.x + moonRadius
+                                        ),
+                                        startX = gradStart,
+                                        endX = gradEnd
+                                    )
                                 )
-                            )
+                            } else {
+                                val gradEnd = (terminatorX + moonRadius * 0.10f)
+                                val gradStart = (terminatorX - moonRadius * 0.42f).coerceAtMost(gradEnd - 2f)
+                                drawRect(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.42f)
+                                        ),
+                                        startX = gradStart,
+                                        endX = gradEnd
+                                    )
+                                )
+                            }
                         }
                     }
                 }
@@ -491,6 +537,42 @@ fun RealisticHijriMoonIndicator(
     }
 }
 
+internal fun lunarIlluminationRatio(hijriDay: Int): Float {
+    val day = hijriDay.coerceIn(1, 30)
+    return when (day) {
+        1 -> 0.14f
+        2 -> 0.20f
+        3 -> 0.26f
+        4 -> 0.32f
+        5 -> 0.38f
+        6 -> 0.44f
+        7 -> 0.50f
+        8 -> 0.57f
+        9 -> 0.64f
+        10 -> 0.71f
+        11 -> 0.78f
+        12 -> 0.845f
+        13 -> 0.90f
+        14 -> 0.955f
+        15 -> 1.00f
+        16 -> 0.95f
+        17 -> 0.89f
+        18 -> 0.83f
+        19 -> 0.76f
+        20 -> 0.69f
+        21 -> 0.62f
+        22 -> 0.55f
+        23 -> 0.48f
+        24 -> 0.41f
+        25 -> 0.34f
+        26 -> 0.28f
+        27 -> 0.22f
+        28 -> 0.17f
+        29 -> 0.12f
+        else -> 0.05f
+    }
+}
+
 private fun buildLunarPhasePath(
     center: Offset,
     radius: Float,
@@ -504,47 +586,12 @@ private fun buildLunarPhasePath(
         bottom = center.y + radius
     )
 
-    if (day in 13..16) {
+    if (day == 15) {
         return Path().apply { addOval(moonRect) }
     }
 
     val isWaxing = day <= 15
-    // Map Hijri day cleanly to illumination width ratio (0f = new, 0.5f = quarter, 1f = full)
-    val illumRatio = if (isWaxing) {
-        // Day 1 -> 0.20 (crisp clear crescent), Day 8 -> 0.52 (first quarter), Day 12 -> 0.88 (gibbous)
-        when (day) {
-            1 -> 0.20f
-            2 -> 0.25f
-            3 -> 0.30f
-            4 -> 0.36f
-            5 -> 0.42f
-            6 -> 0.48f
-            7 -> 0.53f
-            8 -> 0.58f
-            9 -> 0.65f
-            10 -> 0.73f
-            11 -> 0.81f
-            else -> 0.89f
-        }
-    } else {
-        // Symmetrical waning from day 17 -> 0.89 down to day 30 -> 0.20
-        when (day) {
-            17 -> 0.89f
-            18 -> 0.82f
-            19 -> 0.74f
-            20 -> 0.66f
-            21 -> 0.58f
-            22 -> 0.52f
-            23 -> 0.47f
-            24 -> 0.41f
-            25 -> 0.36f
-            26 -> 0.32f
-            27 -> 0.28f
-            28 -> 0.25f
-            29 -> 0.22f
-            else -> 0.20f
-        }
-    }
+    val illumRatio = lunarIlluminationRatio(day)
 
     // Inner terminator ellipse horizontal half-axis:
     // At illumRatio < 0.5 (crescent): Difference between semicircle (width R) and inner oval (width R*(1 - 2*illumRatio))
@@ -579,14 +626,14 @@ private fun buildLunarPhasePath(
     }
 }
 
-private fun moonPhaseLabelRes(hijriDay: Int): Int {
+internal fun moonPhaseLabelRes(hijriDay: Int): Int {
     return when (hijriDay.coerceIn(1, 30)) {
-        1, 29, 30 -> R.string.moon_waxing_crescent
-        in 2..6 -> R.string.moon_waxing_crescent
+        30 -> R.string.moon_new
+        in 1..6 -> R.string.moon_waxing_crescent
         in 7..9 -> R.string.moon_first_quarter
-        in 10..12 -> R.string.moon_waxing_gibbous
-        in 13..16 -> R.string.moon_full
-        in 17..20 -> R.string.moon_waning_gibbous
+        in 10..13 -> R.string.moon_waxing_gibbous
+        14, 15 -> R.string.moon_full
+        in 16..20 -> R.string.moon_waning_gibbous
         in 21..23 -> R.string.moon_last_quarter
         else -> R.string.moon_waning_crescent
     }

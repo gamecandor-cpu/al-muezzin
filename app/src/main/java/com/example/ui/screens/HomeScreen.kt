@@ -26,24 +26,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Mosque
-import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.WbSunny
-import androidx.compose.material.icons.filled.WbTwilight
-import androidx.compose.material.icons.outlined.Brightness5
-import androidx.compose.material.icons.outlined.WbCloudy
+import com.example.ui.theme.AppIcons
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -93,11 +81,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material.icons.filled.Campaign
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.Schedule
 import com.example.R
 import com.example.data.model.AthanPlayMode
 import com.example.data.model.CityPreset
@@ -108,7 +91,6 @@ import com.example.data.model.PrayerTimeItem
 import com.example.data.model.PrayerType
 import com.example.data.model.ReligiousOccasion
 import com.example.data.model.UserSettings
-import com.example.data.remote.BroadcastReminder
 import com.example.ui.components.MinaretCountdownGauge
 import com.example.ui.components.RealisticHijriMoonIndicator
 import com.example.ui.theme.AmberStar
@@ -148,10 +130,6 @@ fun HomeScreen(
     onTestAthanSound: (Boolean) -> Unit = {},
     onStopAthan: () -> Unit = {},
     onStopAthkarAudio: () -> Unit = {},
-    onPlayRemoteReminderAudio: (BroadcastReminder) -> Unit = {},
-    onRequestNotifications: () -> Unit = {},
-    onOpenExactAlarmSettings: () -> Unit = {},
-    onOpenBatterySettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showCitySheet by remember { mutableStateOf(false) }
@@ -214,27 +192,6 @@ fun HomeScreen(
                 }
             }
 
-            if (!uiState.hasNotificationPermission ||
-                !uiState.canScheduleExactAlarms ||
-                !uiState.isIgnoringBatteryOptimizations
-            ) {
-                item {
-                    MandatoryBackgroundSetupBanner(
-                        hasNotificationPermission = uiState.hasNotificationPermission,
-                        canScheduleExactAlarms = uiState.canScheduleExactAlarms,
-                        isIgnoringBatteryOptimizations = uiState.isIgnoringBatteryOptimizations,
-                        onFixSetup = {
-                            when {
-                                !uiState.hasNotificationPermission -> onRequestNotifications()
-                                !uiState.canScheduleExactAlarms -> onOpenExactAlarmSettings()
-                                else -> onOpenBatterySettings()
-                            }
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                    )
-                }
-            }
-
             item {
                 NextPrayerHeroCard(
                     uiState = uiState,
@@ -276,7 +233,7 @@ fun HomeScreen(
                                     modifier = Modifier.testTag("home_stop_athan_button")
                                 ) {
                                     Icon(
-                                        Icons.Filled.Stop,
+                                        AppIcons.Stop,
                                         contentDescription = null,
                                         modifier = Modifier.size(16.dp)
                                     )
@@ -320,7 +277,7 @@ fun HomeScreen(
                                     modifier = Modifier.testTag("home_stop_athkar_button")
                                 ) {
                                     Icon(
-                                        Icons.Filled.Stop,
+                                        AppIcons.Stop,
                                         contentDescription = null,
                                         modifier = Modifier.size(16.dp)
                                     )
@@ -329,16 +286,6 @@ fun HomeScreen(
                                 }
                             }
                         }
-                    }
-
-                    if (uiState.broadcastReminders.isNotEmpty()) {
-                        BroadcastRemindersHomeSection(
-                            reminders = uiState.broadcastReminders,
-                            playbackState = uiState.athkarAudioState,
-                            onPlayAudio = onPlayRemoteReminderAudio,
-                            onStopAudio = onStopAthkarAudio,
-                            modifier = Modifier.padding(bottom = 10.dp)
-                        )
                     }
 
                     // On-page tab switcher: مواقيت الصلاة | تعديل التوقيت
@@ -450,78 +397,6 @@ fun HomeScreen(
 }
 
 @Composable
-private fun MandatoryBackgroundSetupBanner(
-    hasNotificationPermission: Boolean,
-    canScheduleExactAlarms: Boolean,
-    isIgnoringBatteryOptimizations: Boolean,
-    onFixSetup: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val detailText = when {
-        !hasNotificationPermission -> stringResource(R.string.home_notif_banner_notif_missing)
-        !canScheduleExactAlarms -> stringResource(R.string.home_notif_banner_alarm_missing)
-        else -> stringResource(R.string.home_notif_banner_battery_missing)
-    }
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = if (!hasNotificationPermission) CrimsonContainer else NavyElevated,
-        border = BorderStroke(
-            1.dp,
-            if (!hasNotificationPermission) CrimsonBright else AmberStar.copy(alpha = 0.85f)
-        ),
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("home_background_setup_banner")
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Filled.NotificationsActive,
-                contentDescription = null,
-                tint = if (!hasNotificationPermission) CrimsonBright else AmberStar,
-                modifier = Modifier.size(22.dp)
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.home_notif_banner_title),
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    color = IceWhite
-                )
-                Text(
-                    text = detailText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = WarmHighlight
-                )
-            }
-            Button(
-                onClick = onFixSetup,
-                colors = ButtonDefaults.buttonColors(containerColor = CrimsonRed),
-                shape = RoundedCornerShape(10.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                modifier = Modifier
-                    .minimumInteractiveComponentSize()
-                    .testTag("home_fix_notifications_button")
-            ) {
-                Text(
-                    text = stringResource(R.string.home_notif_banner_action),
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun HomeSectionTabSwitcher(
     selectedTab: Int,
     hasOffsets: Boolean,
@@ -541,7 +416,7 @@ private fun HomeSectionTabSwitcher(
         ) {
             HomeTabPill(
                 title = stringResource(R.string.tab_prayer_times),
-                icon = Icons.Filled.AccessTime,
+                icon = AppIcons.AccessTime,
                 selected = selectedTab == 0,
                 onClick = { onSelectTab(0) },
                 modifier = Modifier
@@ -550,7 +425,7 @@ private fun HomeSectionTabSwitcher(
             )
             HomeTabPill(
                 title = if (hasOffsets) "${stringResource(R.string.tab_time_adjust)} •" else stringResource(R.string.tab_time_adjust),
-                icon = Icons.Filled.Tune,
+                icon = AppIcons.Tune,
                 selected = selectedTab == 1,
                 onClick = { onSelectTab(1) },
                 modifier = Modifier
@@ -749,7 +624,7 @@ private fun TimeAdjustmentCard(
                                     .clip(CircleShape)
                                     .background(NavyElevated)
                             ) {
-                                Icon(Icons.Filled.Remove, contentDescription = null, tint = IceWhite, modifier = Modifier.size(18.dp))
+                                Icon(AppIcons.Remove, contentDescription = null, tint = IceWhite, modifier = Modifier.size(18.dp))
                             }
                             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                                 val sign = if (specific > 0) "+" else ""
@@ -891,7 +766,7 @@ private fun PrayerVirtueBottomSheet(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.GraphicEq,
+                                imageVector = AppIcons.GraphicEq,
                                 contentDescription = null,
                                 tint = CrimsonBright,
                                 modifier = Modifier.size(20.dp)
@@ -1053,7 +928,7 @@ private fun PrayerVirtueBottomSheet(
                                 .minimumInteractiveComponentSize()
                                 .testTag("prayer_sheet_stop_athan_button")
                         ) {
-                            Icon(Icons.Filled.Stop, contentDescription = null)
+                            Icon(AppIcons.Stop, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(stringResource(R.string.setting_stop_athan), fontWeight = FontWeight.Bold)
                         }
@@ -1068,7 +943,7 @@ private fun PrayerVirtueBottomSheet(
                                 .testTag("prayer_sheet_test_athan_button")
                         ) {
                             Icon(
-                                Icons.AutoMirrored.Filled.VolumeUp,
+                                AppIcons.VolumeUp,
                                 contentDescription = null,
                                 tint = CrimsonBright,
                                 modifier = Modifier.size(18.dp)
@@ -1106,7 +981,7 @@ private fun PrayerVirtueBottomSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = AmberStar, modifier = Modifier.size(18.dp))
+                        Icon(AppIcons.AutoAwesome, contentDescription = null, tint = AmberStar, modifier = Modifier.size(18.dp))
                         Text(
                             text = info.hadithText,
                             style = MaterialTheme.typography.bodyMedium.copy(
@@ -1384,7 +1259,7 @@ private fun ActiveOccasionHomeBanner(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.AutoAwesome,
+                        imageVector = AppIcons.AutoAwesome,
                         contentDescription = null,
                         tint = AmberStar,
                         modifier = Modifier.size(22.dp)
@@ -1421,131 +1296,6 @@ private fun ActiveOccasionHomeBanner(
                         style = MaterialTheme.typography.bodySmall,
                         color = WarmHighlight
                     )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BroadcastRemindersHomeSection(
-    reminders: List<BroadcastReminder>,
-    playbackState: AthkarAudioPlaybackState,
-    onPlayAudio: (BroadcastReminder) -> Unit,
-    onStopAudio: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        reminders.forEach { reminder ->
-            val isThisPlaying = playbackState.isPlaying && playbackState.remoteId == reminder.id
-            Card(
-                shape = MaterialTheme.shapes.medium,
-                colors = CardDefaults.cardColors(containerColor = NavyDeep.copy(alpha = 0.86f)),
-                border = BorderStroke(
-                    1.dp,
-                    if (isThisPlaying) AmberStar else if (reminder.isPinned) CrimsonBright.copy(alpha = 0.7f) else NavyBorder
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("home_broadcast_reminder_${reminder.id}")
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(if (reminder.isPinned) CrimsonContainer else NavyElevated),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = if (reminder.isPinned) Icons.Filled.PushPin else Icons.Filled.Campaign,
-                            contentDescription = null,
-                            tint = if (reminder.isPinned) AmberStar else CrimsonBright,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = reminder.title,
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = IceWhite
-                            )
-                            if (reminder.isDaily) {
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = NavyPrimary,
-                                    border = BorderStroke(1.dp, NavyBorder)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Schedule,
-                                            contentDescription = null,
-                                            tint = WarmHighlight,
-                                            modifier = Modifier.size(11.dp)
-                                        )
-                                        Text(
-                                            text = "يومياً ${reminder.allScheduledTimes.joinToString(" • ")}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = WarmHighlight
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        if (reminder.body.isNotBlank()) {
-                            Text(
-                                text = reminder.body,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = SilverText
-                            )
-                        }
-                    }
-
-                    if (reminder.isAudio) {
-                        Button(
-                            onClick = { if (isThisPlaying) onStopAudio() else onPlayAudio(reminder) },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isThisPlaying) CrimsonRed else NavyElevated
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isThisPlaying) Icons.Filled.Stop else Icons.Filled.PlayArrow,
-                                contentDescription = if (isThisPlaying) "إيقاف" else "تشغيل",
-                                tint = IceWhite,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (isThisPlaying) "إيقاف" else "تشغيل",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = IceWhite
-                            )
-                        }
-                    }
                 }
             }
         }
@@ -1598,7 +1348,7 @@ private fun NavyHeader(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.Mosque,
+                                    imageVector = AppIcons.Mosque,
                                     contentDescription = stringResource(R.string.app_name),
                                     tint = Color.White,
                                     modifier = Modifier.size(19.dp)
@@ -1868,12 +1618,12 @@ private fun PrayerRow(
 }
 
 private fun prayerIconFor(type: PrayerType): ImageVector = when (type) {
-    PrayerType.FAJR -> Icons.Filled.WbTwilight
-    PrayerType.SUNRISE -> Icons.Outlined.Brightness5
-    PrayerType.DHUHR -> Icons.Filled.WbSunny
-    PrayerType.ASR -> Icons.Outlined.WbCloudy
-    PrayerType.MAGHRIB -> Icons.Filled.WbTwilight
-    PrayerType.ISHA -> Icons.Filled.NightsStay
+    PrayerType.FAJR -> AppIcons.WbTwilight
+    PrayerType.SUNRISE -> AppIcons.Brightness5Outlined
+    PrayerType.DHUHR -> AppIcons.WbSunny
+    PrayerType.ASR -> AppIcons.WbCloudyOutlined
+    PrayerType.MAGHRIB -> AppIcons.WbTwilight
+    PrayerType.ISHA -> AppIcons.NightsStay
 }
 
 @Composable

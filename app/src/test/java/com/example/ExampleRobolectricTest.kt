@@ -4,8 +4,6 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.model.AsrSchool
 import com.example.data.model.CalculationMethod
-import com.example.data.remote.BroadcastReminder
-import com.example.util.PrayerNotificationScheduler
 import com.example.util.PrayerTimeCalculator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -68,31 +66,5 @@ class ExampleRobolectricTest {
     val gregorian = PrayerTimeCalculator.offlineGregorianReadable("Asia/Riyadh")
     assertTrue(hijri.endsWith("هـ"))
     assertTrue(gregorian.isNotBlank())
-  }
-
-  @Test
-  fun `offline broadcasts persist across scheduler cache`() {
-    val context = ApplicationProvider.getApplicationContext<Context>()
-    val scheduler = PrayerNotificationScheduler(context)
-    val sample = BroadcastReminder(
-      id = "r1",
-      title = "أذكار الصباح",
-      body = "تذكير يومي",
-      reminderKind = "audio",
-      deliveryMode = "daily",
-      scheduledTimeHHmm = "06:30",
-      scheduledTimes = listOf("06:30", "17:00"),
-      audioAssetId = "asset_abc",
-      audioChunkCount = 2L,
-      audioFileExt = "mp3",
-      isActive = true,
-      triggerNonce = 3L
-    )
-    scheduler.syncRemoteReminders(listOf(sample))
-    val restored = scheduler.getOfflineBroadcasts()
-    assertEquals(1, restored.size)
-    assertEquals("r1", restored[0].id)
-    assertEquals(listOf("06:30", "17:00"), restored[0].scheduledTimes)
-    assertEquals("asset_abc", restored[0].audioAssetId)
   }
 }

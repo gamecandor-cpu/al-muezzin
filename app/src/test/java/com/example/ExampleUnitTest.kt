@@ -283,6 +283,25 @@ class ExampleUnitTest {
         assertEquals("05:30", customMorning)
         assertEquals("17:35", customEvening)
     }
+
+    @Test
+    fun lunarIllumination_changesEveryHijriDayAndDistinguishesPhases() {
+        for (day in 1 until 15) {
+            val today = com.example.ui.components.lunarIlluminationRatio(day)
+            val next = com.example.ui.components.lunarIlluminationRatio(day + 1)
+            assertTrue("Expected waxing illumination to increase from day $day ($today) to ${day + 1} ($next)", next > today)
+        }
+        assertEquals(1.0f, com.example.ui.components.lunarIlluminationRatio(15), 0.0001f)
+        for (day in 15 until 30) {
+            val today = com.example.ui.components.lunarIlluminationRatio(day)
+            val next = com.example.ui.components.lunarIlluminationRatio(day + 1)
+            assertTrue("Expected waning illumination to decrease from day $day ($today) to ${day + 1} ($next)", next < today)
+        }
+        assertEquals(R.string.moon_full, com.example.ui.components.moonPhaseLabelRes(15))
+        assertEquals(R.string.moon_new, com.example.ui.components.moonPhaseLabelRes(30))
+        assertEquals(R.string.moon_first_quarter, com.example.ui.components.moonPhaseLabelRes(7))
+        assertEquals(R.string.moon_last_quarter, com.example.ui.components.moonPhaseLabelRes(22))
+    }
 }
 
 

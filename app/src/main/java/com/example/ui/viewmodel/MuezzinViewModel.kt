@@ -2,6 +2,8 @@ package com.example.ui.viewmodel
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -30,8 +32,6 @@ import com.example.data.model.TasbihState
 import com.example.data.model.TimeFormat
 import com.example.data.model.UserSettings
 import com.example.data.remote.AladhanApiService
-import com.example.data.remote.BroadcastReminder
-import com.example.data.remote.CloudSyncRepository
 import com.example.data.remote.NominatimApiService
 import com.example.util.AthanPlayer
 import com.example.util.AthkarAudioPlaybackState
@@ -42,6 +42,9 @@ import com.example.util.Coordinates
 import com.example.util.LocationHelper
 import com.example.util.MorningEveningAthkarService
 import com.example.util.NextPrayerStatus
+import com.example.util.OneSignalManager
+import com.example.util.PortalReminder
+import com.example.util.PortalReminderStore
 import com.example.util.PrayerNotificationReceiver
 import com.example.util.PrayerNotificationScheduler
 import com.example.util.PrayerTimeCalculator
@@ -49,10 +52,8 @@ import com.example.util.QiblaSensorManager
 import com.example.util.RamadanAlarmReceiver
 import com.example.util.RamadanAlarmScheduler
 import com.example.util.RamadanStatus
-import com.example.util.RemoteUploadedAudioStore
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -140,17 +141,7 @@ data class MuezzinUiState(
     val athkarScheduleConfig: AthkarScheduleConfig = AthkarScheduleConfig(),
     val morningAthkarScheduleLabel: String = "6:00 ص",
     val eveningAthkarScheduleLabel: String = "قبل المغرب بساعة",
-    val hasNotificationPermission: Boolean = false,
-    val canScheduleExactAlarms: Boolean = true,
-    val isIgnoringBatteryOptimizations: Boolean = false,
-    val fcmToken: String? = null,
-    val cloudSyncBusy: Boolean = false,
-    val cloudSyncStatusAr: String? = null,
-    val lastCloudSyncMillis: Long? = null,
-    val broadcastReminders: List<BroadcastReminder> = emptyList(),
-    val isPortalConnected: Boolean = false,
-    val lastPortalSyncMillis: Long? = null,
-    val isRefreshingPortal: Boolean = false
+    val portalReminders: List<PortalReminder> = emptyList()
 ) {
     val isRamadanActive: Boolean
         get() = ramadanSettings.ramadanTabEnabled || (ramadanSettings.ramadanAutoInMonth && isRamadanMonth)
@@ -171,7 +162,6 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
     private val qiblaSensor = QiblaSensorManager(application)
     private val ramadanScheduler = RamadanAlarmScheduler(application)
     private val notificationScheduler = PrayerNotificationScheduler(application)
-    val cloudSyncRepo = CloudSyncRepository(application)
 
     private val _uiState = MutableStateFlow(
         MuezzinUiState(
@@ -182,12 +172,7 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
                 notificationScheduler.getAthkarScheduleConfig().morningTime24,
                 TimeFormat.HOUR_12
             ),
-            eveningAthkarScheduleLabel = notificationScheduler.getAthkarScheduleConfig().eveningRelationLabelAr(),
-            hasNotificationPermission = PrayerNotificationReceiver.hasNotificationPermission(application),
-            canScheduleExactAlarms = notificationScheduler.canScheduleExactAlarms(),
-            isIgnoringBatteryOptimizations = notificationScheduler.isIgnoringBatteryOptimizations(),
-            broadcastReminders = notificationScheduler.getOfflineBroadcasts(),
-            fcmToken = CloudSyncRepository.getLocalFcmToken(application)
+            eveningAthkarScheduleLabel = notificationScheduler.getAthkarScheduleConfig().eveningRelationLabelAr()
         )
     )
     val uiState: StateFlow<MuezzinUiState> = _uiState.asStateFlow()
@@ -197,11 +182,16 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
 
     private var currentTimings: AladhanTimings? = null
     private var lastLoadedKey: String? = null
+    private var lastLoadedDateStamp: String? = null
+    private var lastSavedLocation: SavedLocation? = null
+    private var lastSettings: UserSettings? = null
+    private var dateRolloverJob: Job? = null
     private var lastAthanTriggeredMinute: String? = null
     private var lastAthkarAutoTriggeredKey: String? = null
     private var searchJob: Job? = null
     private var quranSearchJob: Job? = null
     private var athanPlaybackJob: Job? = null
+    private var lastHandledIntentSignature: String? = null
 
     init {
         PrayerNotificationReceiver.ensureAllChannels(appContext)
@@ -213,140 +203,26 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
         observeQuranPreferences()
         observeCompassSensor()
         observeAthkarAudioPlayback()
-        observeBroadcastReminders()
-        initializeFcmMessaging()
+        observePortalReminders()
+        ensureOneSignalSubscription()
         startCountdownTicker()
         ensureQuranLoaded()
     }
 
-    private fun observeBroadcastReminders() {
+    fun ensureOneSignalSubscription() {
         viewModelScope.launch {
-            cloudSyncRepo.observeActiveBroadcastReminders().collect { reminders ->
-                applyBroadcastRemindersSnapshot(reminders)
-            }
+            OneSignalManager.ensureSubscriptionReady(appContext, allowSystemPrompt = true)
         }
     }
 
-    private fun applyBroadcastRemindersSnapshot(reminders: List<BroadcastReminder>) {
-        val now = System.currentTimeMillis()
-        val activeList = reminders.filter { it.isActive && it.isNotExpired(now) }
-        val hasNotifPerm = PrayerNotificationReceiver.hasNotificationPermission(appContext)
-        _uiState.update {
-            it.copy(
-                broadcastReminders = activeList,
-                hasNotificationPermission = hasNotifPerm,
-                isPortalConnected = true,
-                lastPortalSyncMillis = now
-            )
-        }
-        notificationScheduler.syncRemoteReminders(activeList)
-
-        // Pre-warm cache for uploaded audio clips so repeated/scheduled pushes fire at the exact same instant
-        activeList.forEach { reminder ->
-            if (reminder.isUploadedAudio) {
-                RemoteUploadedAudioStore.prefetchInBackground(
-                    context = appContext,
-                    assetId = reminder.audioAssetId,
-                    chunkCount = reminder.audioChunkCount?.toInt() ?: 0,
-                    fileExt = reminder.audioFileExt
-                )
-            }
-        }
-
-        val newlyTriggered = mutableListOf<BroadcastReminder>()
-        activeList.forEach { reminder ->
-            val shouldTriggerNow = reminder.deliveryMode == "now" || reminder.triggerNonce > 1L
-            val updatedAtMs = reminder.updatedAt?.toDate()?.time
-            val isFreshPush = updatedAtMs == null || (now - updatedAtMs) <= 15 * 60 * 1000L
-            if (shouldTriggerNow &&
-                isFreshPush &&
-                notificationScheduler.markRemoteTriggerHandledIfNew(reminder.id, reminder.triggerNonce)
-            ) {
-                newlyTriggered.add(reminder)
-                val msgBody = reminder.body.ifBlank { reminder.title }
-                if (hasNotifPerm) {
-                    PrayerNotificationReceiver.showCloudPushNotification(
-                        context = appContext,
-                        title = reminder.title,
-                        body = msgBody,
-                        reminderId = reminder.id,
-                        audioUrl = reminder.effectiveAudioUrl,
-                        audioAssetId = reminder.audioAssetId,
-                        audioChunkCount = reminder.audioChunkCount?.toInt() ?: 0,
-                        audioFileExt = reminder.audioFileExt
-                    )
-                }
-            }
-        }
-
-        val latestAudio = newlyTriggered
-            .filter { it.isAudio }
-            .maxByOrNull { it.updatedAt?.toDate()?.time ?: 0L }
-        if (latestAudio != null) {
-            MorningEveningAthkarService.startRemote(
-                context = appContext,
-                title = latestAudio.title,
-                body = latestAudio.body.ifBlank { latestAudio.title },
-                audioUrl = latestAudio.effectiveAudioUrl.orEmpty(),
-                remoteId = latestAudio.id,
-                audioAssetId = latestAudio.audioAssetId,
-                audioChunkCount = latestAudio.audioChunkCount?.toInt() ?: 0,
-                audioFileExt = latestAudio.audioFileExt
-            )
-        }
-
-        newlyTriggered.maxByOrNull { it.updatedAt?.toDate()?.time ?: 0L }?.let { newest ->
-            _events.tryEmit(newest.title)
-        }
-    }
-
-    fun refreshPortalSync() {
-        if (_uiState.value.isRefreshingPortal) return
+    private fun observePortalReminders() {
+        val initial = PortalReminderStore.loadAll(appContext)
+        _uiState.update { it.copy(portalReminders = initial) }
+        notificationScheduler.schedulePortalReminders(initial, _uiState.value.timeZoneId)
         viewModelScope.launch {
-            _uiState.update { it.copy(isRefreshingPortal = true) }
-            val token = CloudSyncRepository.initializeFcmAndSubscribe(appContext)
-            if (!token.isNullOrBlank()) {
-                _uiState.update { it.copy(fcmToken = token) }
+            PortalReminderStore.remindersFlow.collect { list ->
+                _uiState.update { it.copy(portalReminders = list) }
             }
-            val result = cloudSyncRepo.fetchActiveBroadcastRemindersOnce()
-            result.onSuccess { reminders ->
-                applyBroadcastRemindersSnapshot(reminders)
-                _uiState.update { it.copy(isRefreshingPortal = false) }
-                _events.tryEmit("تمت المزامنة مع موقع الإدارة (${reminders.size})")
-            }.onFailure {
-                _uiState.update { it.copy(isRefreshingPortal = false, isPortalConnected = false) }
-                _events.tryEmit("تعذر الاتصال بموقع الإدارة حالياً")
-            }
-        }
-    }
-
-    fun handleLaunchIntent(intent: Intent?) {
-        if (intent == null) return
-        if (intent.action == PrayerNotificationReceiver.ACTION_OPEN_REMOTE_REMINDER) {
-            val title = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_TITLE).orEmpty()
-            val body = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_BODY).orEmpty()
-            val audioUrl = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_URL).orEmpty()
-            val audioAssetId = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_ASSET_ID)
-            val audioChunkCount = intent.getIntExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_CHUNK_COUNT, 0)
-            val audioFileExt = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_AUDIO_FILE_EXT)
-            val reminderId = intent.getStringExtra(PrayerNotificationReceiver.EXTRA_REMINDER_ID)
-            if (title.isNotBlank()) {
-                _events.tryEmit(title)
-            }
-            val hasAudioTarget = audioUrl.isNotBlank() || (!audioAssetId.isNullOrBlank() && audioChunkCount > 0)
-            if (hasAudioTarget && !MorningEveningAthkarService.playbackState.value.isPlaying) {
-                MorningEveningAthkarService.startRemote(
-                    context = appContext,
-                    title = title.ifBlank { "تذكير من موقع الإدارة" },
-                    body = body.ifBlank { title },
-                    audioUrl = audioUrl,
-                    remoteId = reminderId,
-                    audioAssetId = audioAssetId,
-                    audioChunkCount = audioChunkCount,
-                    audioFileExt = audioFileExt
-                )
-            }
-            intent.action = Intent.ACTION_MAIN
         }
     }
 
@@ -354,15 +230,6 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             MorningEveningAthkarService.playbackState.collect { audioState ->
                 _uiState.update { it.copy(athkarAudioState = audioState) }
-            }
-        }
-    }
-
-    private fun initializeFcmMessaging() {
-        viewModelScope.launch {
-            val token = CloudSyncRepository.initializeFcmAndSubscribe(appContext)
-            if (!token.isNullOrBlank()) {
-                _uiState.update { it.copy(fcmToken = token) }
             }
         }
     }
@@ -418,15 +285,22 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
                 }
 
                 if (savedLoc != null) {
-                    val fetchKey = "${savedLoc.latitude}:${savedLoc.longitude}:${settings.calcMethod.id}:${settings.asrSchool.id}"
+                    lastSavedLocation = savedLoc
+                    lastSettings = settings
+                    val tzForDate = savedLoc.timeZoneId.ifBlank { TimeZone.getDefault().id }
+                    val todayStamp = dateStringForTimeZone(tzForDate)
+                    val fetchKey = "${savedLoc.latitude}:${savedLoc.longitude}:${settings.calcMethod.id}:${settings.asrSchool.id}:$todayStamp"
                     if (fetchKey != lastLoadedKey) {
                         lastLoadedKey = fetchKey
+                        lastLoadedDateStamp = todayStamp
                         fetchPrayerTimes(savedLoc, settings)
                     } else {
                         recomputePrayerDisplay()
                         resyncScheduledNotifications()
                     }
                 } else {
+                    lastSavedLocation = null
+                    lastSettings = settings
                     _uiState.update { it.copy(prayersState = PrayersLoadState.NeedsLocation) }
                 }
             }
@@ -459,9 +333,14 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
         val tzId = stateSnapshot.timeZoneId
         val now = System.currentTimeMillis()
         val cityClock = PrayerTimeCalculator.formatCurrentCityTime(now, tzId, settings.timeFormat)
+        val currentDateStamp = dateStringForTimeZone(tzId)
+        if (lastLoadedDateStamp != null && currentDateStamp != lastLoadedDateStamp) {
+            refreshIfDateChanged()
+        }
 
         val timings = currentTimings
         if (timings == null) {
+            lastLoadedDateStamp = currentDateStamp
             val fallbackYear = PrayerTimeCalculator.currentHijriYearFallback(tzId)
             val fallbackMonth = PrayerTimeCalculator.currentHijriMonthFallback(tzId)
             val fallbackDay = PrayerTimeCalculator.currentHijriDayFallback(tzId)
@@ -469,9 +348,11 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
             _uiState.update {
                 it.copy(
                     cityLocalTime = cityClock,
+                    hijriDate = PrayerTimeCalculator.offlineHijriDateFormatted(tzId),
                     hijriYear = fallbackYear,
                     hijriMonth = fallbackMonth,
                     hijriDay = fallbackDay,
+                    gregorianDate = PrayerTimeCalculator.offlineGregorianReadable(tzId),
                     religiousOccasions = PrayerTimeCalculator.computeReligiousOccasions(
                         fallbackYear,
                         fallbackMonth,
@@ -552,7 +433,7 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
             if (cityHHmm == morning24 && lastAthkarAutoTriggeredKey != "$dayStamp:morning") {
                 lastAthkarAutoTriggeredKey = "$dayStamp:morning"
                 MorningEveningAthkarService.start(appContext, AthkarAudioType.MORNING)
-                PrayerNotificationReceiver.showCloudPushNotification(
+                PrayerNotificationReceiver.showAthkarNotification(
                     context = appContext,
                     title = AthkarAudioType.MORNING.titleAr,
                     body = AthkarAudioType.MORNING.subtitleAr,
@@ -562,7 +443,7 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
             } else if (cityHHmm == evening24 && lastAthkarAutoTriggeredKey != "$dayStamp:evening") {
                 lastAthkarAutoTriggeredKey = "$dayStamp:evening"
                 MorningEveningAthkarService.start(appContext, AthkarAudioType.EVENING)
-                PrayerNotificationReceiver.showCloudPushNotification(
+                PrayerNotificationReceiver.showAthkarNotification(
                     context = appContext,
                     title = AthkarAudioType.EVENING.titleAr,
                     body = AthkarAudioType.EVENING.subtitleAr,
@@ -618,7 +499,7 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
     private fun notifyActiveOccasionIfNeeded() {
         val snapshot = _uiState.value
         val active = snapshot.activeOccasion ?: return
-        if (!snapshot.hasNotificationPermission) return
+        if (!PrayerNotificationReceiver.hasNotificationPermission(appContext)) return
         if (notificationScheduler.markOccasionNotifiedIfNeeded(active, snapshot.hijriYear)) {
             PrayerNotificationReceiver.showOccasionNotification(appContext, active)
         }
@@ -737,7 +618,41 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun dateStringForTimeZone(timeZoneId: String): String {
+    fun refreshIfDateChanged() {
+        val tzId = _uiState.value.timeZoneId
+        val currentDateStamp = dateStringForTimeZone(tzId)
+        if (currentDateStamp == lastLoadedDateStamp) return
+        lastLoadedDateStamp = currentDateStamp
+
+        val fallbackYear = PrayerTimeCalculator.currentHijriYearFallback(tzId)
+        val fallbackMonth = PrayerTimeCalculator.currentHijriMonthFallback(tzId)
+        val fallbackDay = PrayerTimeCalculator.currentHijriDayFallback(tzId)
+        _uiState.update {
+            it.copy(
+                hijriDate = PrayerTimeCalculator.offlineHijriDateFormatted(tzId),
+                hijriDay = fallbackDay,
+                hijriMonth = fallbackMonth,
+                hijriYear = fallbackYear,
+                gregorianDate = PrayerTimeCalculator.offlineGregorianReadable(tzId),
+                religiousOccasions = PrayerTimeCalculator.computeReligiousOccasions(
+                    hijriYear = fallbackYear,
+                    hijriMonth = fallbackMonth,
+                    hijriDay = fallbackDay
+                ),
+                isRamadanMonth = PrayerTimeCalculator.isRamadanMonth(fallbackMonth)
+            )
+        }
+
+        val savedLoc = lastSavedLocation ?: return
+        val settings = lastSettings ?: _uiState.value.settings
+        lastLoadedKey = "${savedLoc.latitude}:${savedLoc.longitude}:${settings.calcMethod.id}:${settings.asrSchool.id}:$currentDateStamp"
+        if (dateRolloverJob?.isActive == true) return
+        dateRolloverJob = viewModelScope.launch {
+            fetchPrayerTimes(savedLoc, settings)
+        }
+    }
+
+    private fun dateStringForTimeZone(timeZoneId: String?): String {
         val sdf = SimpleDateFormat("dd-MM-yyyy", Locale.US)
         sdf.timeZone = PrayerTimeCalculator.resolveTimeZone(timeZoneId)
         return sdf.format(Date())
@@ -745,6 +660,7 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
 
     private suspend fun fetchPrayerTimes(location: SavedLocation, settings: UserSettings) {
         val initialTz = location.timeZoneId.ifBlank { TimeZone.getDefault().id }
+        lastLoadedDateStamp = dateStringForTimeZone(initialTz)
         val offlineTimings = notificationScheduler.getOrComputeOfflineTimings(
             latitude = location.latitude,
             longitude = location.longitude,
@@ -1173,48 +1089,14 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
         athanPlayer.stop()
     }
 
-    // Notifications, Athkar Audio & Cloud Sync actions
+    // Athkar Audio & background scheduling refresh
     fun refreshBackgroundCapabilities() {
-        val notifGranted = PrayerNotificationReceiver.hasNotificationPermission(appContext)
-        val exactGranted = notificationScheduler.canScheduleExactAlarms()
-        val batteryIgnored = notificationScheduler.isIgnoringBatteryOptimizations()
-        _uiState.update {
-            it.copy(
-                hasNotificationPermission = notifGranted,
-                canScheduleExactAlarms = exactGranted,
-                isIgnoringBatteryOptimizations = batteryIgnored
-            )
-        }
         PrayerNotificationReceiver.ensureAllChannels(appContext)
         resyncScheduledNotifications()
         syncRamadanAlarms()
-        if (notifGranted) {
+        if (PrayerNotificationReceiver.hasNotificationPermission(appContext)) {
             notifyActiveOccasionIfNeeded()
         }
-    }
-
-    fun refreshNotificationPermissionStatus() {
-        refreshBackgroundCapabilities()
-    }
-
-    fun onNotificationPermissionResult(granted: Boolean) {
-        refreshBackgroundCapabilities()
-        if (granted) {
-            _events.tryEmit("تم تفعيل إشعارات الأذان والأذكار والمناسبات بنجاح")
-        } else {
-            _events.tryEmit("الإشعارات غير مفعّلة — يرجى تفعيلها لضمان سماع الأذان والأذكار")
-        }
-    }
-
-    fun sendTestNotification() {
-        val granted = PrayerNotificationReceiver.hasNotificationPermission(appContext)
-        refreshBackgroundCapabilities()
-        if (!granted) {
-            _events.tryEmit("يرجى السماح بالإشعارات أولاً لإرسال التنبيه")
-            return
-        }
-        PrayerNotificationReceiver.showTestNotification(appContext, _uiState.value.settings.muezzinVoice)
-        _events.tryEmit("تم إرسال إشعار تجريبي إلى النظام")
     }
 
     fun toggleAthkarAutoPlay(enabled: Boolean) {
@@ -1257,64 +1139,134 @@ class MuezzinViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
-    fun playRemoteReminderAudio(reminder: BroadcastReminder) {
-        val url = reminder.effectiveAudioUrl.orEmpty()
-        if (url.isBlank() && !reminder.isUploadedAudio) return
-        val started = MorningEveningAthkarService.startRemote(
-            context = appContext,
-            title = reminder.title,
-            body = reminder.body.ifBlank { reminder.title },
-            audioUrl = url,
-            remoteId = reminder.id,
-            audioAssetId = reminder.audioAssetId,
-            audioChunkCount = reminder.audioChunkCount?.toInt() ?: 0,
-            audioFileExt = reminder.audioFileExt
-        )
-        _events.tryEmit(
-            if (started) "جاري تشغيل: ${reminder.title}"
-            else "تعذر تشغيل المقطع الصوتي"
-        )
-    }
-
     fun stopAthkarAudio() {
         MorningEveningAthkarService.stop(appContext)
     }
 
-    fun syncProfileToCloud() {
-        if (Firebase.auth.currentUser == null) {
-            _events.tryEmit("سجّل الدخول بحساب Google أولاً للمزامنة السحابية")
+    // Website Portal Reminder Sync & Playback
+    fun handleIncomingIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action ?: return
+        val dataUri = intent.data
+        @Suppress("DEPRECATION")
+        val extraStream: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
+        val extraText = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+
+        val sig = "$action|${dataUri?.toString().orEmpty()}|${extraStream?.toString().orEmpty()}|${extraText.hashCode()}"
+        if (sig == lastHandledIntentSignature) return
+        if (action != Intent.ACTION_VIEW && action != Intent.ACTION_SEND) return
+        if (dataUri == null && extraStream == null && extraText.isBlank()) return
+        lastHandledIntentSignature = sig
+
+        if (dataUri != null && dataUri.scheme.equals("almuezzin", ignoreCase = true) &&
+            dataUri.host.equals("onesignal", ignoreCase = true)
+        ) {
+            val appId = dataUri.getQueryParameter("appId")
+                ?: dataUri.getQueryParameter("id")
+                ?: ""
+            if (OneSignalManager.saveSyncedAppId(appContext, appId)) {
+                ensureOneSignalSubscription()
+                _events.tryEmit("تم ربط التطبيق بـ OneSignal لاستقبال الإشعارات الفورية")
+            } else {
+                _events.tryEmit("معرّف OneSignal App ID غير صالح")
+            }
             return
         }
-        val snapshot = _uiState.value
-        viewModelScope.launch {
-            _uiState.update { it.copy(cloudSyncBusy = true, cloudSyncStatusAr = "جاري المزامنة مع السحابة...") }
-            val result = cloudSyncRepo.saveOrUpdateProfile(
-                fcmToken = snapshot.fcmToken ?: CloudSyncRepository.getLocalFcmToken(appContext),
-                cityName = snapshot.locationName,
-                athanEnabled = snapshot.settings.athanEnabled,
-                athkarAutoEnabled = snapshot.athkarAutoEnabled,
-                qadaRemaining = snapshot.qadaState.remainingDays,
-                qadaCompleted = snapshot.qadaState.completedDays
-            )
-            if (result.isSuccess) {
-                _uiState.update {
-                    it.copy(
-                        cloudSyncBusy = false,
-                        cloudSyncStatusAr = "تمت مزامنة الإعدادات ورمز الإشعارات بنجاح",
-                        lastCloudSyncMillis = System.currentTimeMillis()
-                    )
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val imported = runCatching {
+                when {
+                    dataUri != null -> PortalReminderStore.importFromUri(appContext, dataUri)
+                    extraStream != null -> PortalReminderStore.importFromUri(appContext, extraStream)
+                    extraText.isNotBlank() -> PortalReminderStore.importFromText(appContext, extraText)
+                    else -> emptyList()
                 }
-                _events.tryEmit("تمت المزامنة السحابية بنجاح")
-            } else {
-                _uiState.update {
-                    it.copy(
-                        cloudSyncBusy = false,
-                        cloudSyncStatusAr = "تعذرت المزامنة حالياً، تحقق من الشبكة"
-                    )
-                }
-                _events.tryEmit("تعذرت المزامنة مع السحابة")
+            }.getOrElse { e ->
+                Log.w(TAG, "Failed to import incoming portal reminder: ${e.message}")
+                emptyList()
             }
+            onPortalRemindersImported(imported)
         }
+    }
+
+    fun importPortalFile(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val imported = runCatching {
+                PortalReminderStore.importFromUri(appContext, uri)
+            }.getOrElse { e ->
+                Log.w(TAG, "Portal file import error: ${e.message}")
+                _events.tryEmit("تعذر قراءة ملف التذكير — تأكد أنه ملف .muezzin أو JSON صحيح")
+                return@launch
+            }
+            onPortalRemindersImported(imported)
+        }
+    }
+
+    fun importPortalCode(rawText: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val imported = runCatching {
+                PortalReminderStore.importFromText(appContext, rawText)
+            }.getOrElse { e ->
+                Log.w(TAG, "Portal text import error: ${e.message}")
+                emptyList()
+            }
+            onPortalRemindersImported(imported)
+        }
+    }
+
+    private fun onPortalRemindersImported(imported: List<PortalReminder>) {
+        if (imported.isEmpty()) {
+            _events.tryEmit("لم يتم العثور على تذكيرات صالحة للاستيراد")
+            return
+        }
+        val all = PortalReminderStore.loadAll(appContext)
+        notificationScheduler.schedulePortalReminders(all, _uiState.value.timeZoneId)
+
+        val immediate = imported.firstOrNull { it.isActive && !it.isExpired() && it.deliveryMode == "now" }
+        if (immediate != null && immediate.hasPlayableAudio()) {
+            playPortalReminder(immediate)
+        }
+
+        ensureOneSignalSubscription()
+        val label = if (imported.size == 1) {
+            "تم استلام تذكير من الموقع: ${imported.first().title}"
+        } else {
+            "تم استلام ${imported.size} تذكيرات من الموقع بنجاح"
+        }
+        _events.tryEmit(label)
+    }
+
+    fun playPortalReminder(reminder: PortalReminder) {
+        val started = MorningEveningAthkarService.startRemote(
+            context = appContext,
+            title = reminder.title,
+            body = reminder.body.ifBlank { reminder.title },
+            audioUrl = reminder.bestRemoteAudioUrl().orEmpty(),
+            remoteId = reminder.id,
+            localAudioPath = reminder.localAudioPath
+        )
+        _events.tryEmit(
+            if (started) "جاري تشغيل: ${reminder.title}"
+            else "تعذر تشغيل صوت هذا التذكير"
+        )
+    }
+
+    fun togglePortalReminder(id: String) {
+        val updated = PortalReminderStore.toggleActive(appContext, id)
+        notificationScheduler.schedulePortalReminders(updated, _uiState.value.timeZoneId)
+    }
+
+    fun deletePortalReminder(id: String) {
+        if (_uiState.value.athkarAudioState.remoteId == id) {
+            MorningEveningAthkarService.stop(appContext)
+        }
+        val remaining = PortalReminderStore.deleteById(appContext, id)
+        notificationScheduler.schedulePortalReminders(remaining, _uiState.value.timeZoneId)
+        _events.tryEmit("تم حذف التذكير")
     }
 
     // Quran / Mushaf actions

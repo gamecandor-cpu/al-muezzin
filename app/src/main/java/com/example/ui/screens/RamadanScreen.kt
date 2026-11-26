@@ -1,11 +1,6 @@
 package com.example.ui.screens
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -27,13 +22,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Restaurant
-import androidx.compose.material.icons.filled.WbTwilight
+import com.example.ui.theme.AppIcons
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -59,7 +50,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -68,7 +58,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import com.example.R
 import com.example.data.model.QadaState
 import com.example.data.model.RamadanSettings
@@ -103,23 +92,6 @@ fun RamadanScreen(
     modifier: Modifier = Modifier
 ) {
     BackHandler(enabled = showSettingsHeaderBar, onBack = onBackToSettings)
-    val context = LocalContext.current
-    val notificationLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { /* Permission granted or denied; alarms remain stored */ }
-
-    val ensureNotificationPermission: (() -> Unit) -> Unit = { action ->
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val granted = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) {
-                notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-        action()
-    }
 
     val ramadanStatus = uiState.ramadanStatus
     val ramadanSettings = uiState.ramadanSettings
@@ -203,7 +175,7 @@ fun RamadanScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.NightsStay,
+                                imageVector = AppIcons.NightsStay,
                                 contentDescription = null,
                                 tint = AmberStar,
                                 modifier = Modifier.size(26.dp)
@@ -291,14 +263,14 @@ fun RamadanScreen(
                             RamadanTimeBox(
                                 title = stringResource(R.string.ramadan_suhoor_label),
                                 time = ramadanStatus?.suhoorFormatted ?: "--",
-                                icon = Icons.Filled.Restaurant,
+                                icon = AppIcons.Restaurant,
                                 accentColor = AmberStar,
                                 modifier = Modifier.weight(1f)
                             )
                             RamadanTimeBox(
                                 title = stringResource(R.string.ramadan_imsak_label),
                                 time = ramadanStatus?.imsakFormatted ?: "--",
-                                icon = Icons.Filled.NightsStay,
+                                icon = AppIcons.NightsStay,
                                 accentColor = CrimsonBright,
                                 modifier = Modifier.weight(1f)
                             )
@@ -311,14 +283,14 @@ fun RamadanScreen(
                             RamadanTimeBox(
                                 title = stringResource(R.string.ramadan_fajr_label),
                                 time = ramadanStatus?.fajrFormatted ?: "--",
-                                icon = Icons.Filled.WbTwilight,
+                                icon = AppIcons.WbTwilight,
                                 accentColor = WarmHighlight,
                                 modifier = Modifier.weight(1f)
                             )
                             RamadanTimeBox(
                                 title = stringResource(R.string.ramadan_iftar_label),
                                 time = ramadanStatus?.iftarFormatted ?: "--",
-                                icon = Icons.Filled.WbTwilight,
+                                icon = AppIcons.WbTwilight,
                                 accentColor = CrimsonBright,
                                 modifier = Modifier.weight(1f)
                             )
@@ -332,23 +304,19 @@ fun RamadanScreen(
                 RamadanAlarmsCard(
                     settings = ramadanSettings,
                     onToggleImsak = { enabled ->
-                        ensureNotificationPermission {
-                            onUpdateImsakAlarm(enabled, ramadanSettings.imsakLeadMinutes)
-                        }
+                        onUpdateImsakAlarm(enabled, ramadanSettings.imsakLeadMinutes)
                     },
                     onSelectImsakLead = { mins ->
                         onUpdateImsakAlarm(ramadanSettings.imsakAlarmEnabled, mins)
                     },
                     onToggleIftar = { enabled ->
-                        ensureNotificationPermission {
-                            onUpdateIftarAlarm(enabled, ramadanSettings.iftarLeadMinutes)
-                        }
+                        onUpdateIftarAlarm(enabled, ramadanSettings.iftarLeadMinutes)
                     },
                     onSelectIftarLead = { mins ->
                         onUpdateIftarAlarm(ramadanSettings.iftarAlarmEnabled, mins)
                     },
-                    onTestImsak = { ensureNotificationPermission(onTestImsakAlarm) },
-                    onTestIftar = { ensureNotificationPermission(onTestIftarAlarm) }
+                    onTestImsak = onTestImsakAlarm,
+                    onTestIftar = onTestIftarAlarm
                 )
             }
 
@@ -472,7 +440,7 @@ private fun RamadanAlarmsCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Filled.Alarm, contentDescription = null, tint = CrimsonBright)
+                Icon(AppIcons.Alarm, contentDescription = null, tint = CrimsonBright)
                 Text(
                     text = stringResource(R.string.ramadan_alarms_title),
                     style = MaterialTheme.typography.titleLarge,
@@ -661,7 +629,7 @@ private fun QadaTrackerCard(
                                     .background(NavyPrimary)
                                     .testTag("qada_decrement_button")
                             ) {
-                                Icon(Icons.Filled.Remove, contentDescription = null, tint = IceWhite)
+                                Icon(AppIcons.Remove, contentDescription = null, tint = IceWhite)
                             }
                             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                                 Text(

@@ -19,14 +19,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Event
-import androidx.compose.material.icons.filled.NightsStay
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
+import com.example.ui.theme.AppIcons
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -69,15 +64,8 @@ import com.example.ui.theme.WarmHighlight
 fun SettingsScreen(
     isRamadanTabActive: Boolean,
     religiousOccasions: List<ReligiousOccasion>,
-    hasNotificationPermission: Boolean,
-    canScheduleExactAlarms: Boolean,
-    isIgnoringBatteryOptimizations: Boolean,
     onToggleRamadanTab: (Boolean) -> Unit,
     onOpenRamadanSection: () -> Unit,
-    onRequestNotifications: () -> Unit,
-    onOpenExactAlarmSettings: () -> Unit,
-    onOpenBatterySettings: () -> Unit,
-    onSendTestNotification: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     // 0 = الإعدادات العامة, 1 = المناسبات الدينية
@@ -113,16 +101,6 @@ fun SettingsScreen(
             )
 
             if (selectedTab == 0) {
-                BackgroundNotificationsCard(
-                    hasNotificationPermission = hasNotificationPermission,
-                    canScheduleExactAlarms = canScheduleExactAlarms,
-                    isIgnoringBatteryOptimizations = isIgnoringBatteryOptimizations,
-                    onRequestNotifications = onRequestNotifications,
-                    onOpenExactAlarmSettings = onOpenExactAlarmSettings,
-                    onOpenBatterySettings = onOpenBatterySettings,
-                    onSendTestNotification = onSendTestNotification
-                )
-
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = MaterialTheme.shapes.large,
@@ -143,7 +121,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.NightsStay,
+                                imageVector = AppIcons.NightsStay,
                                 contentDescription = null,
                                 tint = AmberStar,
                                 modifier = Modifier.size(22.dp)
@@ -224,180 +202,6 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun BackgroundNotificationsCard(
-    hasNotificationPermission: Boolean,
-    canScheduleExactAlarms: Boolean,
-    isIgnoringBatteryOptimizations: Boolean,
-    onRequestNotifications: () -> Unit,
-    onOpenExactAlarmSettings: () -> Unit,
-    onOpenBatterySettings: () -> Unit,
-    onSendTestNotification: () -> Unit
-) {
-    val allReady = hasNotificationPermission && canScheduleExactAlarms && isIgnoringBatteryOptimizations
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("settings_background_notifications_card"),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = NavyDeep.copy(alpha = 0.80f)),
-        border = BorderStroke(1.dp, if (allReady) AmberStar.copy(alpha = 0.65f) else CrimsonRed)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.NotificationsActive,
-                    contentDescription = null,
-                    tint = if (allReady) AmberStar else CrimsonBright,
-                    modifier = Modifier.size(22.dp)
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.setting_background_section_title),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = IceWhite
-                    )
-                    Text(
-                        text = stringResource(R.string.setting_background_section_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = SilverText
-                    )
-                }
-            }
-
-            BackgroundCapabilityRow(
-                icon = Icons.Filled.NotificationsActive,
-                title = stringResource(R.string.setting_bg_notif_row),
-                isReady = hasNotificationPermission,
-                onActionClick = onRequestNotifications,
-                buttonTag = "settings_grant_notifications_button"
-            )
-            BackgroundCapabilityRow(
-                icon = Icons.Filled.Schedule,
-                title = stringResource(R.string.setting_bg_exact_alarm_row),
-                isReady = canScheduleExactAlarms,
-                onActionClick = onOpenExactAlarmSettings,
-                buttonTag = "settings_grant_exact_alarm_button"
-            )
-            BackgroundCapabilityRow(
-                icon = Icons.Filled.BatteryChargingFull,
-                title = stringResource(R.string.setting_bg_battery_row),
-                isReady = isIgnoringBatteryOptimizations,
-                onActionClick = onOpenBatterySettings,
-                buttonTag = "settings_grant_battery_button"
-            )
-
-            OutlinedButton(
-                onClick = onSendTestNotification,
-                border = BorderStroke(1.dp, WarmHighlight.copy(alpha = 0.55f)),
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .minimumInteractiveComponentSize()
-                    .testTag("settings_test_notification_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.NotificationsActive,
-                    contentDescription = null,
-                    tint = WarmHighlight,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = stringResource(R.string.setting_notifications_test_btn),
-                    color = WarmHighlight,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BackgroundCapabilityRow(
-    icon: ImageVector,
-    title: String,
-    isReady: Boolean,
-    onActionClick: () -> Unit,
-    buttonTag: String
-) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = NavyPrimary.copy(alpha = 0.55f),
-        border = BorderStroke(1.dp, if (isReady) AmberStar.copy(alpha = 0.45f) else NavyBorder),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (isReady) AmberStar else CrimsonBright,
-                modifier = Modifier.size(20.dp)
-            )
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = IceWhite,
-                modifier = Modifier.weight(1f)
-            )
-            if (isReady) {
-                Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = AmberStar.copy(alpha = 0.16f),
-                    border = BorderStroke(1.dp, AmberStar.copy(alpha = 0.65f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = AmberStar,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = stringResource(R.string.setting_bg_status_ready),
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                            color = AmberStar
-                        )
-                    }
-                }
-            } else {
-                Button(
-                    onClick = onActionClick,
-                    colors = ButtonDefaults.buttonColors(containerColor = CrimsonRed),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .minimumInteractiveComponentSize()
-                        .testTag(buttonTag)
-                ) {
-                    Text(
-                        text = stringResource(R.string.setting_bg_status_action),
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun SettingsTabSwitcher(
     selectedTab: Int,
     hasActiveOccasionToday: Boolean,
@@ -427,7 +231,7 @@ private fun SettingsTabSwitcher(
             )
             SettingsTabPill(
                 title = stringResource(R.string.settings_tab_occasions),
-                icon = Icons.Filled.Event,
+                icon = AppIcons.Event,
                 selected = selectedTab == 1,
                 highlightDot = hasActiveOccasionToday,
                 onClick = { onSelectTab(1) },
@@ -506,7 +310,7 @@ private fun UpcomingOccasionsCard(occasions: List<ReligiousOccasion>) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Event,
+                    imageVector = AppIcons.Event,
                     contentDescription = null,
                     tint = CrimsonBright,
                     modifier = Modifier.size(22.dp)
@@ -612,7 +416,7 @@ private fun ReligiousOccasionRow(occasion: ReligiousOccasion) {
             ) {
                 if (isToday) {
                     Icon(
-                        imageVector = Icons.Filled.AutoAwesome,
+                        imageVector = AppIcons.AutoAwesome,
                         contentDescription = null,
                         tint = AmberStar,
                         modifier = Modifier.size(18.dp)

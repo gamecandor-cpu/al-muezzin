@@ -156,45 +156,8 @@
     <string name="athkar_audio_schedule_format">الصباح: %1$s • المساء: %2$s</string>
     <string name="athkar_now_playing_banner">جاري تشغيل %1$s الآن...</string>
 
-    <string name="setting_notifications_title">الإشعارات والتنبيهات الفورية</string>
-    <string name="setting_notifications_status_granted">إشعارات النظام مفعّلة (الصلاة، الأعياد، الأذكار، السحابة)</string>
-    <string name="setting_notifications_status_denied">يرجى السماح بالإشعارات ليصلك الأذان وتنبيهات الأعياد والمناسبات</string>
-    <string name="setting_notifications_grant_btn">تفعيل الإشعارات</string>
-    <string name="setting_notifications_test_btn">إرسال إشعار تجريبي</string>
     <string name="setting_athkar_auto_title">التشغيل التلقائي لأذكار الصباح والمساء</string>
     <string name="setting_athkar_auto_desc">تشغيل أذكار الصباح الساعة ٦:٠٠ صباحاً وأذكار المساء قبل أذان المغرب بساعة (قابل للتعديل)</string>
-
-    <string name="setting_cloud_title">المزامنة السحابية وإشعارات Firebase</string>
-    <string name="setting_cloud_fcm_active">إشعارات السحابة (FCM) متصلة ومشتركة في التنبيهات</string>
-    <string name="setting_cloud_fcm_pending">جاري تهيئة رمز إشعارات السحابة (FCM)...</string>
-    <string name="setting_cloud_signin_google">تسجيل الدخول بحساب Google للمزامنة</string>
-    <string name="setting_cloud_sync_now">مزامنة الإعدادات الآن</string>
-    <string name="setting_cloud_signout">تسجيل الخروج</string>
-    <string name="setting_cloud_signed_in_as">الحساب المتصل: %1$s</string>
     <string name="settings_tab_general">الإعدادات العامة</string>
     <string name="settings_tab_occasions">المناسبات الدينية</string>
-
-    <string name="setting_portal_title">الربط بموقع الإدارة (المؤذن)</string>
-    <string name="setting_portal_connected">متصل بالسحابة — يستقبل التذكيرات والصوتيات فوراً</string>
-    <string name="setting_portal_reconnecting">جاري الاتصال بموقع الإدارة...</string>
-    <string name="setting_portal_sync_btn">مزامنة الآن</string>
-    <string name="setting_portal_reminders_count">التذكيرات المستلمة حالياً: %1$d</string>
-    <string name="setting_portal_package_label">معرف الحزمة: %1$s</string>
-
-    <string name="mandatory_notif_dialog_title">تفعيل الإشعارات الإلزامي</string>
-    <string name="mandatory_notif_dialog_body">لكي يرفع التطبيق الأذان ويشغّل أذكار الصباح والمساء وتنبيهات المؤذن تلقائياً في الخلفية (مع أو بدون إنترنت)، يجب تفعيل صلاحية الإشعارات الآن.</string>
-    <string name="mandatory_notif_dialog_btn">تفعيل الإشعارات الآن</string>
-    <string name="mandatory_notif_dialog_later">لاحقاً</string>
-    <string name="home_notif_banner_title">تفعيل التنبيهات الإلزامي بالخلفية</string>
-    <string name="home_notif_banner_notif_missing">صلاحية الإشعارات غير مفعّلة — اضغط للتفعيل الفوري للأذان والأذكار.</string>
-    <string name="home_notif_banner_alarm_missing">يرجى تفعيل "المنبهات والتذكيرات الدقيقة" ليعمل الأذان في ثانيته.</string>
-    <string name="home_notif_banner_battery_missing">لتشغيل الأذان والأذكار بالخلفية دائماً، اختر "غير مقيد" من إعدادات البطارية.</string>
-    <string name="home_notif_banner_action">تفعيل الآن</string>
-    <string name="setting_background_section_title">التشغيل الدائم بالخلفية والإشعارات</string>
-    <string name="setting_background_section_desc">يعمل الأذان، أذكار الصباح والمساء، والمواقيت الفلكية تلقائياً في الخلفية بإنترنت أو بدون إنترنت.</string>
-    <string name="setting_bg_notif_row">الإشعارات الإلزامية</string>
-    <string name="setting_bg_exact_alarm_row">دقة مواعيد الأذان والأذكار</string>
-    <string name="setting_bg_battery_row">العمل الدائم بالخلفية (البطارية)</string>
-    <string name="setting_bg_status_ready">مفعّل</string>
-    <string name="setting_bg_status_action">تفعيل</string>
 </resources>

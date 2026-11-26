@@ -29,18 +29,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.FormatListBulleted
-import androidx.compose.material.icons.filled.NightsStay
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.TextFields
-import androidx.compose.material.icons.filled.WbSunny
+import com.example.ui.theme.AppIcons
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -241,7 +232,7 @@ fun QuranScreen(
                                 modifier = Modifier.testTag("quran_display_settings_button")
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.TextFields,
+                                    imageVector = AppIcons.TextFields,
                                     contentDescription = stringResource(R.string.quran_font_size),
                                     tint = if (showDisplayBar) CrimsonBright else IceWhite
                                 )
@@ -251,7 +242,7 @@ fun QuranScreen(
                                 modifier = Modifier.testTag("quran_bookmark_button")
                             ) {
                                 Icon(
-                                    imageVector = if (isCurrentBookmarked) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                                    imageVector = if (isCurrentBookmarked) AppIcons.Bookmark else AppIcons.BookmarkBorder,
                                     contentDescription = stringResource(R.string.quran_bookmark_save),
                                     tint = if (isCurrentBookmarked) AmberStar else IceWhite
                                 )
@@ -268,7 +259,7 @@ fun QuranScreen(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Filled.FormatListBulleted,
+                                        imageVector = AppIcons.FormatListBulleted,
                                         contentDescription = stringResource(R.string.quran_index),
                                         tint = Color.White,
                                         modifier = Modifier.size(16.dp)
@@ -312,7 +303,7 @@ fun QuranScreen(
                                             .clip(CircleShape)
                                             .background(NavyElevated)
                                     ) {
-                                        Icon(Icons.Filled.Remove, contentDescription = null, tint = IceWhite, modifier = Modifier.size(16.dp))
+                                        Icon(AppIcons.Remove, contentDescription = null, tint = IceWhite, modifier = Modifier.size(16.dp))
                                     }
                                     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                                         Text(
@@ -344,7 +335,7 @@ fun QuranScreen(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         Icon(
-                                            imageVector = if (quranPrefs.paperMode) Icons.Filled.WbSunny else Icons.Filled.NightsStay,
+                                            imageVector = if (quranPrefs.paperMode) AppIcons.WbSunny else AppIcons.NightsStay,
                                             contentDescription = null,
                                             tint = if (quranPrefs.paperMode) CrimsonDark else AmberStar,
                                             modifier = Modifier.size(16.dp)
@@ -405,7 +396,7 @@ fun QuranScreen(
                         enabled = currentPageNumber > 1,
                         modifier = Modifier.testTag("quran_prev_page_button")
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = null)
+                        Icon(AppIcons.KeyboardArrowLeft, contentDescription = null)
                         Spacer(modifier = Modifier.width(2.dp))
                         Text(stringResource(R.string.quran_prev_page))
                     }
@@ -441,7 +432,7 @@ fun QuranScreen(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(
-                                        Icons.Filled.Bookmark,
+                                        AppIcons.Bookmark,
                                         contentDescription = null,
                                         tint = AmberStar,
                                         modifier = Modifier.size(14.dp)
@@ -463,7 +454,7 @@ fun QuranScreen(
                     ) {
                         Text(stringResource(R.string.quran_next_page))
                         Spacer(modifier = Modifier.width(2.dp))
-                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                        Icon(AppIcons.KeyboardArrowRight, contentDescription = null)
                     }
                 }
             }
@@ -691,7 +682,7 @@ private fun QuranIndexBottomSheet(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = CrimsonBright)
+                Icon(AppIcons.MenuBook, contentDescription = null, tint = CrimsonBright)
                 Text(
                     text = stringResource(R.string.quran_index),
                     style = MaterialTheme.typography.headlineMedium,

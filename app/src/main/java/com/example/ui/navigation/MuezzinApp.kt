@@ -1,12 +1,8 @@
 package com.example.ui.navigation
 
 import android.Manifest
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
@@ -30,20 +26,11 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.NightsStay
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material3.AlertDialog
+import com.example.ui.theme.AppIcons
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -116,10 +103,10 @@ enum class MuezzinDestination(
     val unselectedIcon: ImageVector
 ) {
     HOME("home", R.string.nav_home, Icons.Filled.Home, Icons.Outlined.Home),
-    QURAN("quran", R.string.nav_quran, Icons.AutoMirrored.Filled.MenuBook, Icons.AutoMirrored.Outlined.MenuBook),
-    QIBLA("qibla", R.string.nav_qibla, Icons.Filled.Explore, Icons.Outlined.Explore),
-    ATHKAR("athkar", R.string.nav_athkar, Icons.Filled.AutoStories, Icons.Outlined.AutoStories),
-    RAMADAN("ramadan", R.string.nav_ramadan, Icons.Filled.NightsStay, Icons.Outlined.NightsStay),
+    QURAN("quran", R.string.nav_quran, AppIcons.MenuBook, AppIcons.MenuBookOutlined),
+    QIBLA("qibla", R.string.nav_qibla, AppIcons.Explore, AppIcons.ExploreOutlined),
+    ATHKAR("athkar", R.string.nav_athkar, AppIcons.AutoStories, AppIcons.AutoStoriesOutlined),
+    RAMADAN("ramadan", R.string.nav_ramadan, AppIcons.NightsStay, AppIcons.NightsStayOutlined),
     SETTINGS("settings", R.string.nav_settings, Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
@@ -137,8 +124,6 @@ fun MuezzinApp(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var autoLocationAttempted by remember { mutableStateOf(false) }
-    var notificationsPromptResolved by remember { mutableStateOf(false) }
-    var showMandatoryNotifDialog by remember { mutableStateOf(false) }
     var showLaunchSplash by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
@@ -152,126 +137,14 @@ fun MuezzinApp(
         }
     }
 
-    LaunchedEffect(launchIntent) {
-        muezzinViewModel.handleLaunchIntent(launchIntent)
-    }
-
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         muezzinViewModel.refreshBackgroundCapabilities()
+        muezzinViewModel.refreshIfDateChanged()
+        muezzinViewModel.ensureOneSignalSubscription()
     }
 
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        muezzinViewModel.onNotificationPermissionResult(isGranted)
-        notificationsPromptResolved = true
-        showMandatoryNotifDialog = !isGranted
-    }
-
-    val openAppNotificationSettings: () -> Unit = {
-        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-            }
-        } else {
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-        }
-        runCatching { context.startActivity(intent) }.onFailure {
-            runCatching {
-                context.startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = Uri.parse("package:${context.packageName}")
-                    }
-                )
-            }
-        }
-    }
-
-    val requestOrOpenNotifications: () -> Unit = {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val alreadyGranted = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (alreadyGranted) {
-                muezzinViewModel.refreshBackgroundCapabilities()
-                showMandatoryNotifDialog = false
-            } else {
-                val launchPrefs = context.getSharedPreferences("muezzin_launch_prefs", Context.MODE_PRIVATE)
-                val attempts = launchPrefs.getInt("notif_prompt_attempts", 0)
-                if (attempts < 2) {
-                    launchPrefs.edit().putInt("notif_prompt_attempts", attempts + 1).apply()
-                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                } else {
-                    openAppNotificationSettings()
-                }
-            }
-        } else {
-            openAppNotificationSettings()
-        }
-    }
-
-    val openExactAlarmSettings: () -> Unit = {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-            runCatching { context.startActivity(intent) }.onFailure {
-                runCatching {
-                    context.startActivity(
-                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.parse("package:${context.packageName}")
-                        }
-                    )
-                }
-            }
-        }
-    }
-
-    val openBatterySettings: () -> Unit = {
-        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-        runCatching { context.startActivity(intent) }.onFailure {
-            runCatching {
-                context.startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = Uri.parse("package:${context.packageName}")
-                    }
-                )
-            }
-        }
-    }
-
-    LaunchedEffect(showLaunchSplash) {
-        if (!showLaunchSplash && !notificationsPromptResolved) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val alreadyGranted = ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) == PackageManager.PERMISSION_GRANTED
-                if (!alreadyGranted) {
-                    val launchPrefs = context.getSharedPreferences("muezzin_launch_prefs", Context.MODE_PRIVATE)
-                    val attempts = launchPrefs.getInt("notif_prompt_attempts", 0)
-                    if (attempts < 2) {
-                        launchPrefs.edit().putInt("notif_prompt_attempts", attempts + 1).apply()
-                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    } else {
-                        muezzinViewModel.refreshBackgroundCapabilities()
-                        notificationsPromptResolved = true
-                        showMandatoryNotifDialog = true
-                    }
-                } else {
-                    muezzinViewModel.refreshBackgroundCapabilities()
-                    notificationsPromptResolved = true
-                    showMandatoryNotifDialog = false
-                }
-            } else {
-                muezzinViewModel.refreshBackgroundCapabilities()
-                notificationsPromptResolved = true
-                showMandatoryNotifDialog = !uiState.hasNotificationPermission
-            }
-        }
+    LaunchedEffect(launchIntent) {
+        muezzinViewModel.handleIncomingIntent(launchIntent)
     }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -294,8 +167,8 @@ fun MuezzinApp(
         }
     }
 
-    LaunchedEffect(uiState.coordinates, notificationsPromptResolved) {
-        if (notificationsPromptResolved && !autoLocationAttempted && uiState.coordinates == null) {
+    LaunchedEffect(uiState.coordinates, showLaunchSplash) {
+        if (!showLaunchSplash && !autoLocationAttempted && uiState.coordinates == null) {
             autoLocationAttempted = true
             val granted = ContextCompat.checkSelfPermission(
                 context,
@@ -462,11 +335,7 @@ fun MuezzinApp(
                             onAthanPlayModeChange = muezzinViewModel::updateAthanPlayMode,
                             onTestAthanSound = muezzinViewModel::triggerAthanAlert,
                             onStopAthan = muezzinViewModel::stopAthanPlayback,
-                            onStopAthkarAudio = muezzinViewModel::stopAthkarAudio,
-                            onPlayRemoteReminderAudio = muezzinViewModel::playRemoteReminderAudio,
-                            onRequestNotifications = requestOrOpenNotifications,
-                            onOpenExactAlarmSettings = openExactAlarmSettings,
-                            onOpenBatterySettings = openBatterySettings
+                            onStopAthkarAudio = muezzinViewModel::stopAthkarAudio
                         )
                     }
                     composable(MuezzinDestination.QURAN.route) {
@@ -500,15 +369,17 @@ fun MuezzinApp(
                             timeFormat = uiState.settings.timeFormat,
                             morningScheduleLabel = uiState.morningAthkarScheduleLabel,
                             eveningScheduleLabel = uiState.eveningAthkarScheduleLabel,
-                            broadcastReminders = uiState.broadcastReminders,
+                            portalReminders = uiState.portalReminders,
                             onIncrementAthkar = muezzinViewModel::incrementAthkar,
                             onResetAthkarItem = muezzinViewModel::resetAthkarItem,
                             onResetAllAthkar = muezzinViewModel::resetAllAthkar,
                             onPlayAthkarAudio = muezzinViewModel::playAthkarAudio,
-                            onPlayRemoteReminderAudio = muezzinViewModel::playRemoteReminderAudio,
                             onStopAthkarAudio = muezzinViewModel::stopAthkarAudio,
                             onToggleAthkarAuto = muezzinViewModel::toggleAthkarAutoPlay,
                             onUpdateAthkarSchedule = muezzinViewModel::updateAthkarScheduleConfig,
+                            onPlayPortalReminder = muezzinViewModel::playPortalReminder,
+                            onTogglePortalReminder = muezzinViewModel::togglePortalReminder,
+                            onDeletePortalReminder = muezzinViewModel::deletePortalReminder,
                             onTasbihIncrement = muezzinViewModel::incrementTasbih,
                             onTasbihReset = muezzinViewModel::resetTasbih,
                             onTasbihSelectDhikr = muezzinViewModel::selectDhikr,
@@ -534,75 +405,12 @@ fun MuezzinApp(
                         SettingsScreen(
                             isRamadanTabActive = uiState.isRamadanActive,
                             religiousOccasions = uiState.religiousOccasions,
-                            hasNotificationPermission = uiState.hasNotificationPermission,
-                            canScheduleExactAlarms = uiState.canScheduleExactAlarms,
-                            isIgnoringBatteryOptimizations = uiState.isIgnoringBatteryOptimizations,
                             onToggleRamadanTab = muezzinViewModel::setRamadanTabEnabled,
-                            onOpenRamadanSection = openRamadanFromSettings,
-                            onRequestNotifications = requestOrOpenNotifications,
-                            onOpenExactAlarmSettings = openExactAlarmSettings,
-                            onOpenBatterySettings = openBatterySettings,
-                            onSendTestNotification = muezzinViewModel::sendTestNotification
+                            onOpenRamadanSection = openRamadanFromSettings
                         )
                     }
                 }
             }
-        }
-
-        if (showMandatoryNotifDialog && !uiState.hasNotificationPermission && !showLaunchSplash) {
-            AlertDialog(
-                onDismissRequest = { showMandatoryNotifDialog = false },
-                containerColor = NavyDeep,
-                titleContentColor = IceWhite,
-                textContentColor = SilverText,
-                icon = {
-                    Icon(
-                        imageVector = Icons.Filled.NotificationsActive,
-                        contentDescription = null,
-                        tint = CrimsonBright,
-                        modifier = Modifier.size(32.dp)
-                    )
-                },
-                title = {
-                    Text(
-                        text = stringResource(R.string.mandatory_notif_dialog_title),
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                    )
-                },
-                text = {
-                    Text(
-                        text = stringResource(R.string.mandatory_notif_dialog_body),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            showMandatoryNotifDialog = false
-                            requestOrOpenNotifications()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = CrimsonBright),
-                        modifier = Modifier.testTag("mandatory_enable_notifications_button")
-                    ) {
-                        Text(
-                            text = stringResource(R.string.mandatory_notif_dialog_btn),
-                            color = IceWhite,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = { showMandatoryNotifDialog = false },
-                        modifier = Modifier.testTag("mandatory_notifications_later_button")
-                    ) {
-                        Text(
-                            text = stringResource(R.string.mandatory_notif_dialog_later),
-                            color = SilverText
-                        )
-                    }
-                }
-            )
         }
 
         AnimatedVisibility(
