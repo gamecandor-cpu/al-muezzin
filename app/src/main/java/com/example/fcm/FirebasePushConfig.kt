@@ -56,9 +56,15 @@ object FirebasePushConfig {
     fun requestTokenAndRegister(context: Context) {
         if (!isConfigured) return
         try {
-            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+            val messaging = FirebaseMessaging.getInstance()
+            messaging.token.addOnSuccessListener { token ->
                 Log.i(TAG, "FCM token acquired")
                 DeviceRegistrar.register(context, token)
+                messaging.subscribeToTopic(TOPIC_ALL).addOnSuccessListener {
+                    Log.i(TAG, "Subscribed to topic $TOPIC_ALL")
+                }.addOnFailureListener { error ->
+                    Log.w(TAG, "Topic subscription failed", error)
+                }
             }.addOnFailureListener { error ->
                 Log.w(TAG, "Failed to acquire FCM token", error)
             }
@@ -66,4 +72,7 @@ object FirebasePushConfig {
             Log.e(TAG, "Unable to request FCM token", e)
         }
     }
+
+    /** Broadcast topic every installed app subscribes to. */
+    const val TOPIC_ALL = "all"
 }

@@ -19,7 +19,6 @@ debug.keystore
 *-debug.log
 
 # Firebase (admin dashboard)
-admin-dashboard/firebase-config.js
 firebase-debug.log
 firestore-debug.log
 ui-debug.log

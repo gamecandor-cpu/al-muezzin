@@ -82,42 +82,49 @@ exports.sendNotification = onCall(async (request) => {
     tokens = snapshot.docs.map((doc) => doc.data().token).filter(Boolean);
   }
 
-  if (tokens.length === 0) {
-    throw new Error("no registered devices");
-  }
-
-  const message = {
-    data: {
-      type,
-      title,
-      body,
-      audioUrl,
-      reminderId: `push_${Date.now()}`
-    },
-    android: {
-      priority: "high",
-      notification: type === "text"
-        ? { channelId: "push_text_channel", title, body }
-        : { channelId: "push_audio_channel", title, body }
-    }
+  const messageData = {
+    type,
+    title,
+    body,
+    audioUrl,
+    reminderId: `push_${Date.now()}`
+  };
+  const android = {
+    priority: "high",
+    notification: type === "text"
+      ? { channelId: "push_text_channel", title, body }
+      : { channelId: "push_audio_channel", title, body }
   };
 
-  const result = await admin.messaging().sendEachForMulticast({
-    tokens,
-    data: message.data,
-    android: message.android
-  });
+  // Broadcasting to the shared topic always works, even when no device has
+  // registered itself yet (the app subscribes to the topic on start).
+  let topicSent = false;
+  let successCount = 0;
+  let failureCount = 0;
+  if (tokens.length === 0) {
+    await admin.messaging().send({
+      topic: "all",
+      data: messageData,
+      android
+    });
+    topicSent = true;
+    successCount = 1;
+  } else {
+    const result = await admin.messaging().sendEachForMulticast({ tokens, data: messageData, android });
+    successCount = result.successCount;
+    failureCount = result.failureCount;
 
-  // Prune tokens that Firebase reported as permanently invalid.
-  const invalid = [];
-  result.responses.forEach((resp, index) => {
-    if (!resp.success && resp.error && resp.error.code === "messaging/registration-token-not-registered") {
-      invalid.push(tokens[index]);
-    }
-  });
-  await Promise.all(
-    invalid.map((token) => db.collection(DEVICES).doc(encodeToken(token)).delete().catch(() => null))
-  );
+    // Prune tokens that Firebase reported as permanently invalid.
+    const invalid = [];
+    result.responses.forEach((resp, index) => {
+      if (!resp.success && resp.error && resp.error.code === "messaging/registration-token-not-registered") {
+        invalid.push(tokens[index]);
+      }
+    });
+    await Promise.all(
+      invalid.map((token) => db.collection(DEVICES).doc(encodeToken(token)).delete().catch(() => null))
+    );
+  }
 
   const history = {
     type,
@@ -125,18 +132,19 @@ exports.sendNotification = onCall(async (request) => {
     body,
     audioUrl,
     sentAt: admin.firestore.Timestamp.now(),
-    recipients: result.successCount,
-    failed: result.failureCount,
+    recipients: successCount,
+    failed: failureCount,
+    topic: topicSent,
     sender: request.auth.token.email || "admin"
   };
   await db.collection(NOTIFICATIONS).add(history);
 
-  logger.info("Notification sent", { type, recipients: result.successCount });
+  logger.info("Notification sent", { type, recipients: successCount, topicSent });
   return {
     ok: true,
-    successCount: result.successCount,
-    failureCount: result.failureCount,
-    cleaned: invalid.length
+    successCount,
+    failureCount,
+    topicSent
   };
 });
 
