@@ -150,3 +150,10 @@ td { font-variant-numeric: tabular-nums; }
 }
 
 code { background: var(--panel-2); padding: 2px 6px; border-radius: 6px; direction: ltr; display: inline-block; }
+
+hr.soft { border: none; border-top: 1px solid var(--line); margin: 22px 0; }
+
+details { margin-top: 14px; }
+details > summary { cursor: pointer; color: var(--muted); }
+details > summary strong { color: var(--text); }
+button.small { padding: 6px 12px; font-size: 13px; }
