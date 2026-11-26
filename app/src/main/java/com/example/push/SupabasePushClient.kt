@@ -212,7 +212,9 @@ object SupabasePushClient {
         if (msg.optString("event") != "postgres_changes") return
         val data = msg.optJSONObject("payload")?.optJSONObject("data") ?: return
         if (data.optString("event_type") != "INSERT") return
-        val record = data.optJSONObject("new") ?: return
+        // Supabase Realtime puts the inserted row under "record" (older builds used
+        // "new"); accept either so live delivery never silently drops.
+        val record = data.optJSONObject("record") ?: data.optJSONObject("new") ?: return
         dispatch(record, listener)
     }
 
