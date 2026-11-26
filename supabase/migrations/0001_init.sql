@@ -41,11 +41,11 @@ alter publication supabase_realtime add table public.notifications;
 -- ---------------------------------------------------------------- grants
 -- Explicitly expose the tables to the Data (REST) API roles. RLS below then
 -- decides which rows each role may touch.
-grant usage on schema public to anon, authenticated;
-grant select, insert, update on public.devices to anon, authenticated;
-grant select on public.notifications to anon;
-grant select, insert on public.notifications to authenticated;
-grant usage, select on all sequences in schema public to anon, authenticated;
+grant usage on schema public to anon, authenticated, service_role;
+grant select, insert, update on public.devices to anon, authenticated, service_role;
+grant select on public.notifications to anon, service_role;
+grant select, insert on public.notifications to authenticated, service_role;
+grant usage, select on all sequences in schema public to anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------- RLS
 alter table public.devices       enable row level security;
