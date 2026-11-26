@@ -37,3 +37,9 @@ my-upload-key.jks
 .claude/
 .agents/
 skills-lock.json
+
+# Firebase/Google config (contains API key) + secrets
+app/google-services.json
+*.jks
+service-account*.json
+almuezzin-fcm-sa.json

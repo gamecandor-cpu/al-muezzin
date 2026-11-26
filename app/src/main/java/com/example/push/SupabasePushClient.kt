@@ -21,6 +21,7 @@ import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import com.google.firebase.messaging.FirebaseMessaging
 
 /**
  * Supabase-backed push transport for the Al-Muezzin app. No Firebase at all.
@@ -40,6 +41,7 @@ object SupabasePushClient {
     private const val PREFS = "muezzin_supabase_prefs"
     private const val KEY_DEVICE_ID = "device_id"
     private const val KEY_LAST_NOTIF_ID = "last_notif_id"
+    private const val KEY_FCM_TOKEN = "fcm_token"
 
     private val json = "application/json; charset=utf-8".toMediaType()
     private val client = OkHttpClient.Builder()
@@ -81,6 +83,7 @@ object SupabasePushClient {
         scope.launch {
             try {
                 val id = deviceId(context)
+                val fcmToken = currentFcmToken(context)
                 val payload = JSONObject().apply {
                     put("id", id)
                     put("platform", "android")
@@ -88,6 +91,7 @@ object SupabasePushClient {
                     put("model", "${Build.MANUFACTURER} ${Build.MODEL}".trim())
                     put("app_id", "almuezzin")
                     put("last_seen_at", java.time.Instant.now().toString())
+                    if (!fcmToken.isNullOrBlank()) put("fcm_token", fcmToken)
                 }
                 val req = Request.Builder()
                     .url("${baseUrl()}/rest/v1/devices?on_conflict=id")
@@ -121,6 +125,52 @@ object SupabasePushClient {
                     .patch(body.toString().toRequestBody(json))
                     .build()
                 client.newCall(req).execute().use { it.code }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------- fcm token
+    /** Cached FCM token, if Firebase Messaging has produced one yet. */
+    private fun currentFcmToken(context: Context): String? {
+        prefs(context).getString(KEY_FCM_TOKEN, null)?.let { return it }
+        return runCatching { FirebaseMessaging.getInstance().token.result }.getOrNull()
+    }
+
+    /**
+     * Stores the FCM token and pushes it onto this device's row so the
+     * dashboard can address a push to it even when the app is closed.
+     */
+    fun registerFcmToken(context: Context, token: String) {
+        if (!isConfigured || token.isBlank()) return
+        prefs(context).edit().putString(KEY_FCM_TOKEN, token).apply()
+        scope.launch {
+            runCatching {
+                val body = JSONObject().put("fcm_token", token).put("last_seen_at", java.time.Instant.now().toString())
+                val req = Request.Builder()
+                    .url("${baseUrl()}/rest/v1/devices?id=eq.${deviceId(context)}")
+                    .addHeader("apikey", anonKey())
+                    .addHeader("Authorization", "Bearer ${anonKey()}")
+                    .addHeader("Content-Type", "application/json")
+                    .addHeader("Prefer", "return=minimal")
+                    .patch(body.toString().toRequestBody(json))
+                    .build()
+                client.newCall(req).execute().use { resp ->
+                    Log.i(TAG, "fcm token saved HTTP ${resp.code}")
+                    // If the row did not exist yet, create it.
+                    if (resp.code == 404) register(context)
+                }
+            }
+        }
+    }
+
+    /** Fetches the current FCM token (registering with FCM if needed) and saves it. */
+    fun refreshFcmToken(context: Context) {
+        if (!isConfigured) return
+        scope.launch {
+            runCatching {
+                FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                    registerFcmToken(context, token)
+                }
             }
         }
     }

@@ -15,6 +15,7 @@ class MuezzinApplication : Application() {
         // Supabase push: register this device and listen for dashboard pushes.
         if (SupabasePushClient.isConfigured) {
             SupabasePushClient.register(this)
+            SupabasePushClient.refreshFcmToken(this)
             SupabasePushClient.startListening(this) { message ->
                 PushMessageHandler.onMessage(applicationContext, message)
             }

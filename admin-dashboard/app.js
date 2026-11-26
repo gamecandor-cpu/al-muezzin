@@ -221,10 +221,22 @@
       const { data, error } = await sb.from("notifications").insert(row).select().single();
       if (error) throw new Error(error.message);
 
+      // Ask the push-send Edge Function to deliver via Firebase Cloud Messaging
+      // so the notification reaches devices even when the app is closed.
+      let fcmSent = 0;
+      try {
+        const { data: pushResp } = await sb.functions.invoke("push-send", {
+          body: { id: data?.id, type, title, body, audio_url: audioUrl || "" }
+        });
+        fcmSent = pushResp?.sent || 0;
+      } catch (e) {
+        console.warn("FCM push-send failed:", e);
+      }
+
       // Realtime delivers the INSERT to every connected app instantly.
       $("sendStatus").textContent =
-        "✅ تم الإرسال — ستصلك على " + (recipients || "كل") + " جهاز متصل فوراً." +
-        " (الأجهزة غير المتصلة ستستلم عند فتحها)";
+        "✅ تم الإرسال — وصل إلى " + (fcmSent || recipients || "كل") + " جهاز فوراً (حتى المغلق)." +
+        " الأجهزة غير المتصلة ستستلم عند فتحها.";
       toast("تم إرسال الإشعار بنجاح");
       pushLocalHistory({ type, title, body, audioUrl: audioUrl || "", sentAt: Date.now(), recipients });
       $("pushBody").value = "";

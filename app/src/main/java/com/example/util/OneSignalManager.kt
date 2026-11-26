@@ -1,36 +1,33 @@
 package com.example.util
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
 import android.util.Log
-import androidx.core.content.ContextCompat
 import com.example.BuildConfig
-import com.onesignal.OneSignal
-import com.onesignal.notifications.INotificationClickEvent
-import com.onesignal.notifications.INotificationClickListener
-import com.onesignal.notifications.INotificationLifecycleListener
-import com.onesignal.notifications.INotificationWillDisplayEvent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
 
+/**
+ * Push plumbing for the Al-Muezzin app.
+ *
+ * Historically this wrapped the OneSignal SDK. We now use Firebase Cloud
+ * Messaging directly (see [com.example.push.MuezzinFirebaseMessagingService]),
+ * so the OneSignal SDK calls were removed. The portal‑reminder parsing and the
+ * incoming‑push handling below are pure app logic and are kept so reminder
+ * scheduling, audio playback and de‑duplication continue to work for FCM pushes.
+ */
 data class OneSignalStatus(
     val isConfigured: Boolean = false,
     val appId: String? = null
 )
 
 object OneSignalManager {
-    private const val TAG = "OneSignalManager"
+    private const val TAG = "PushManager"
     private const val PREFS_NAME = "muezzin_onesignal_prefs"
     private const val KEY_APP_ID = "synced_onesignal_app_id"
     private val UUID_REGEX = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
-    private var initializedAppId: String? = null
-    private var listenersRegistered: Boolean = false
-    private var permissionRequestedThisSession: Boolean = false
     private val processedPushKeys = ArrayDeque<String>(64)
 
     private val _status = MutableStateFlow(OneSignalStatus())
@@ -66,107 +63,14 @@ object OneSignalManager {
         return initIfConfigured(context)
     }
 
+    /** FCM handles delivery now, so there is no SDK to initialise. */
     @Synchronized
     fun initIfConfigured(context: Context): Boolean {
-        val appContext = context.applicationContext
-        PrayerNotificationReceiver.ensureAllChannels(appContext)
-        val appId = getEffectiveAppId(appContext)
-        if (appId.isNullOrBlank()) {
-            _status.value = OneSignalStatus(isConfigured = false, appId = null)
-            return false
-        }
-
-        if (initializedAppId == appId) {
-            runCatching { OneSignal.User.pushSubscription.optIn() }
-            _status.value = OneSignalStatus(isConfigured = true, appId = appId)
-            return true
-        }
-
-        return runCatching {
-            OneSignal.initWithContext(appContext, appId)
-            initializedAppId = appId
-            _status.value = OneSignalStatus(isConfigured = true, appId = appId)
-
-            if (!listenersRegistered) {
-                registerNotificationListeners(appContext)
-                listenersRegistered = true
-            }
-            runCatching { OneSignal.User.pushSubscription.optIn() }
-            Log.i(TAG, "OneSignal initialized with App ID: ${appId.take(8)}...")
-            true
-        }.getOrElse { e ->
-            Log.e(TAG, "Failed to initialize OneSignal: ${e.message}")
-            false
-        }
+        PrayerNotificationReceiver.ensureAllChannels(context.applicationContext)
+        return false
     }
 
-    suspend fun ensureSubscriptionReady(context: Context, allowSystemPrompt: Boolean = true): Boolean {
-        val appContext = context.applicationContext
-        if (!initIfConfigured(appContext)) return false
-
-        val hasOsPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                appContext,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
-
-        if (!hasOsPermission && allowSystemPrompt && !permissionRequestedThisSession) {
-            permissionRequestedThisSession = true
-            runCatching {
-                OneSignal.Notifications.requestPermission(false)
-            }
-        }
-
-        return runCatching {
-            OneSignal.User.pushSubscription.optIn()
-            true
-        }.getOrDefault(false)
-    }
-
-    private fun registerNotificationListeners(appContext: Context) {
-        OneSignal.Notifications.addForegroundLifecycleListener(object : INotificationLifecycleListener {
-            override fun onWillDisplay(event: INotificationWillDisplayEvent) {
-                val n = event.notification
-                handleIncomingPush(
-                    context = appContext,
-                    notificationId = n.notificationId,
-                    title = n.title,
-                    body = n.body,
-                    additionalData = n.additionalData,
-                    triggerImmediateAudio = true
-                )
-            }
-        })
-
-        OneSignal.Notifications.addClickListener(object : INotificationClickListener {
-            override fun onClick(event: INotificationClickEvent) {
-                val n = event.notification
-                val reminder = handleIncomingPush(
-                    context = appContext,
-                    notificationId = n.notificationId,
-                    title = n.title,
-                    body = n.body,
-                    additionalData = n.additionalData,
-                    triggerImmediateAudio = false
-                )
-                if (reminder != null && reminder.isActive && !reminder.isExpired() && reminder.hasPlayableAudio()) {
-                    runCatching {
-                        MorningEveningAthkarService.startRemote(
-                            context = appContext,
-                            title = reminder.title,
-                            body = reminder.body.ifBlank { reminder.title },
-                            audioUrl = reminder.bestRemoteAudioUrl().orEmpty(),
-                            remoteId = reminder.id,
-                            localAudioPath = reminder.localAudioPath
-                        )
-                    }
-                }
-            }
-        })
-    }
+    suspend fun ensureSubscriptionReady(context: Context, allowSystemPrompt: Boolean = true): Boolean = false
 
     @Synchronized
     private fun markHandledOnce(key: String): Boolean {
