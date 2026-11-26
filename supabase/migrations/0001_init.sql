@@ -1,13 +1,14 @@
 -- Al-Muezzin — Supabase schema (free tier, no Firebase).
 --
---  devices       : one row per installed app.
---  notifications : the send log + what the app polls to catch up while offline.
+--  devices       : one row per installed app (no secrets in here — just metadata).
+--  notifications : the send log + what the app pulls to catch up while offline.
 --
 -- Delivery model:
 --   1. The dashboard (admin, Supabase Auth) INSERTs a row into `notifications`.
 --   2. Supabase Realtime broadcasts that INSERT to every connected app.
 --   3. Apps that were offline fetch missed rows over the REST API.
 
+-- ---------------------------------------------------------------- tables
 create table if not exists public.devices (
   id            text primary key,
   platform      text not null default 'android',
@@ -34,11 +35,27 @@ create table if not exists public.notifications (
 create index if not exists notifications_sent_at_idx on public.notifications (sent_at desc);
 create index if not exists devices_last_seen_idx on public.devices (last_seen_at desc);
 
--- Realtime broadcast on insert.
+-- ---------------------------------------------------------------- realtime
 alter publication supabase_realtime add table public.notifications;
 
+-- ---------------------------------------------------------------- grants
+-- Explicitly expose the tables to the Data (REST) API roles. RLS below then
+-- decides which rows each role may touch.
+grant usage on schema public to anon, authenticated;
+grant select, insert, update on public.devices to anon, authenticated;
+grant select on public.notifications to anon;
+grant select, insert on public.notifications to authenticated;
+grant usage, select on all sequences in schema public to anon, authenticated;
+
+-- ---------------------------------------------------------------- RLS
 alter table public.devices       enable row level security;
 alter table public.notifications enable row level security;
+
+-- Devices hold no secrets (ids + metadata only), so both roles may read them.
+-- UPDATE must be paired with SELECT or the upsert silently updates 0 rows.
+drop policy if exists devices_read on public.devices;
+create policy devices_read on public.devices
+  for select to anon, authenticated using (true);
 
 drop policy if exists devices_insert_any on public.devices;
 create policy devices_insert_any on public.devices
@@ -48,10 +65,7 @@ drop policy if exists devices_update_own on public.devices;
 create policy devices_update_own on public.devices
   for update to anon, authenticated using (true) with check (true);
 
-drop policy if exists devices_admin_select on public.devices;
-create policy devices_admin_select on public.devices
-  for select to authenticated using (true);
-
+-- The dashboard (signed in) writes the send log.
 drop policy if exists notifications_admin_insert on public.notifications;
 create policy notifications_admin_insert on public.notifications
   for insert to authenticated with check (true);
@@ -60,6 +74,8 @@ drop policy if exists notifications_admin_select on public.notifications;
 create policy notifications_admin_select on public.notifications
   for select to authenticated using (true);
 
+-- Apps read the notification history (to catch up while offline). The content
+-- is public prayer reminders, so this is intentionally permissive.
 drop policy if exists notifications_anon_select on public.notifications;
 create policy notifications_anon_select on public.notifications
   for select to anon using (true);

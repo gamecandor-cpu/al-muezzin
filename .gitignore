@@ -33,3 +33,7 @@ my-upload-key.jks
 *FCM-Key.json
 *fcm-sa.json
 *-sa.json
+.agents/
+.claude/
+.agents/
+skills-lock.json

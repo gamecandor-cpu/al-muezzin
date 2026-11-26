@@ -1,8 +1,6 @@
 // Supabase project configuration for the Al-Muezzin admin dashboard + app.
-// Both values are PUBLIC by design (anon key is restricted by Row Level Security).
-//
-// Get them from: Supabase Dashboard -> Project Settings -> API
+// Both values are PUBLIC (publishable key) — protected by Row Level Security.
 window.SUPABASE_CONFIG = {
-  url: "https://YOUR_PROJECT_REF.supabase.co",
-  anonKey: "YOUR_SUPABASE_ANON_KEY"
+  url: "https://zxwmnpjbquktuctjsekp.supabase.co",
+  anonKey: "sb_publishable_Xw5psaX1ApREnwzbxo09oQ_IQmvEk_D"
 };
