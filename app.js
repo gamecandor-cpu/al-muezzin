@@ -1,39 +1,28 @@
-/* Al-Muezzin admin dashboard — Spark-plan friendly edition.
+/* Al-Muezzin admin dashboard — Supabase edition (free tier, no Firebase).
  *
- *  - Devices: registered by the Android app directly into Firebase Realtime
- *    Database (free on Spark). The dashboard authenticates with Firebase Auth,
- *    RTDB rules then expose the data to admin users.
- *  - Sends:   FCM HTTP v1 API called straight from the browser using an OAuth2
- *    access token minted locally from the admin's service-account JSON
- *    (loaded from a file picker or pasted manually). The service-account is
- *    kept only in `localStorage` of this browser; nothing is uploaded.
- *  - Audio upload: catbox.moe free file host (no API key, ~200MB files).
+ *  - Devices:       the Android app upserts a row in `devices`.
+ *  - Sends:         the dashboard INSERTs a row in `notifications`.
+ *                   Supabase Realtime broadcasts it to every connected app
+ *                   instantly; offline apps catch up over the REST API.
+ *  - Audio:         direct URL, or uploaded to a free file host.
+ *  - Auth:          Supabase Auth (email + password) gates the dashboard.
  */
 (function () {
   "use strict";
 
   const $ = (id) => document.getElementById(id);
-  const config = window.FIREBASE_CONFIG || null;
-  const RTDB_URL = "https://gen-lang-client-0088673365-default-rtdb.firebaseio.com";
-  const FCM_PROJECT = (config && (config.projectId || (config.appId || "").split(":")[1])) || "gen-lang-client-0088673365";
-  const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
-  const TOKEN_URL = "https://oauth2.googleapis.com/token";
-  const FCM_SEND_URL = `https://fcm.googleapis.com/v1/projects/${FCM_PROJECT}/messages:send`;
-  const CATBOX_URL = "https://catbox.moe/user/api.php";
+  const cfg = window.SUPABASE_CONFIG || null;
 
-  let auth = null;
-  let db = null;
+  let sb = null;            // supabase client
   let devices = [];
-  let sa = null;            // service-account JSON
-  let accessToken = null;   // short-lived OAuth2 access token for FCM
-  let accessTokenExpiry = 0;
 
   const LOCAL_HISTORY = "almuezzin_dashboard_history";
-  const LOCAL_SA = "almuezzin_service_account";
+  const CATBOX_URL = "https://catbox.moe/user/api.php";
 
   // ---------------------------------------------------------------- utilities
   function toast(message, isError) {
     const el = $("toast");
+    if (!el) return;
     el.textContent = message;
     el.style.background = isError ? "var(--danger)" : "var(--accent)";
     el.style.color = isError ? "#2a0910" : "#06221f";
@@ -43,133 +32,43 @@
   }
 
   function formatDate(value) {
-    if (value === undefined || value === null) return "—";
-    const n = typeof value === "number" ? value : Number(value);
-    if (!isFinite(n)) return String(value);
-    return new Date(n).toLocaleString("ar-EG", { dateStyle: "medium", timeStyle: "short" });
+    if (!value) return "—";
+    const date = new Date(value);
+    return isNaN(date) ? "—" : date.toLocaleString("ar-EG", { dateStyle: "medium", timeStyle: "short" });
   }
 
   function readLocal(key) {
     try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch (e) { return []; }
   }
-
   function writeLocal(key, items) {
     try { localStorage.setItem(key, JSON.stringify(items.slice(0, 100))); } catch (e) { /* ignore */ }
   }
-
   function pushLocalHistory(entry) {
     const items = readLocal(LOCAL_HISTORY);
     items.unshift(entry);
     writeLocal(LOCAL_HISTORY, items);
   }
 
-  // ------------------------------------------------------------ service-account
-  function decodeBase64Url(b64url) {
-    const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
-    const pad = "=".repeat((4 - (b64.length % 4)) % 4);
-    return atob(b64 + pad);
-  }
-
-  function pemToArrayBuffer(pem) {
-    const cleaned = pem.replace(/-----BEGIN PRIVATE KEY-----/g, "")
-      .replace(/-----END PRIVATE KEY-----/g, "")
-      .replace(/\s+/g, "");
-    const binary = atob(cleaned);
-    const buffer = new ArrayBuffer(binary.length);
-    const view = new Uint8Array(buffer);
-    for (let i = 0; i < binary.length; i++) view[i] = binary.charCodeAt(i);
-    return buffer;
-  }
-
-  async function importPrivateKey(pkcs8Pem) {
-    return crypto.subtle.importKey(
-      "pkcs8",
-      pemToArrayBuffer(pkcs8Pem),
-      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-  }
-
-  function base64UrlEncode(bytes) {
-    let str = "";
-    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    for (let i = 0; i < view.length; i++) str += String.fromCharCode(view[i]);
-    return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  }
-
-  async function signJwt(sa) {
-    const header = { alg: "RS256", typ: "JWT" };
-    const now = Math.floor(Date.now() / 1000);
-    const claim = {
-      iss: sa.client_email,
-      scope: FCM_SCOPE,
-      aud: TOKEN_URL,
-      iat: now,
-      exp: now + 3500
-    };
-    const enc = (obj) => base64UrlEncode(new TextEncoder().encode(JSON.stringify(obj)));
-    const signingInput = enc(header) + "." + enc(claim);
-    const key = await importPrivateKey(sa.private_key);
-    const signature = await crypto.subtle.sign(
-      { name: "RSASSA-PKCS1-v1_5" },
-      key,
-      new TextEncoder().encode(signingInput)
-    );
-    return signingInput + "." + base64UrlEncode(signature);
-  }
-
-  async function fetchAccessToken(forceRefresh) {
-    if (!sa) throw new Error("لم يتم رفع مفتاح الخدمة بعد.");
-    if (!forceRefresh && accessToken && Date.now() < accessTokenExpiry - 60_000) {
-      return accessToken;
-    }
-    const jwt = await signJwt(sa);
-    const res = await fetch(TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=" + encodeURIComponent(jwt)
-    });
-    if (!res.ok) throw new Error("OAuth2 HTTP " + res.status + ": " + (await res.text()));
-    const data = await res.json();
-    accessToken = data.access_token;
-    accessTokenExpiry = Date.now() + (data.expires_in || 3600) * 1000;
-    return accessToken;
-  }
-
-  function loadStoredServiceAccount() {
-    try {
-      const raw = localStorage.getItem(LOCAL_SA);
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch (e) { return null; }
-  }
-
-  function storeServiceAccount(obj) {
-    sa = obj;
-    accessToken = null;
-    accessTokenExpiry = 0;
-    localStorage.setItem(LOCAL_SA, JSON.stringify(obj));
-    $("saStatus").textContent = "✔ مفتاح FCM v1 محفوظ في المتصفح فقط (" + (obj.project_id || obj.projectId) + ")";
-  }
-
-  // ------------------------------------------------------------------- wiring
-  function initFirebase() {
-    if (!config) {
+  // ------------------------------------------------------------------- config
+  function initSupabase() {
+    if (!cfg || !cfg.url || !cfg.anonKey || /YOUR_/.test(cfg.anonKey + cfg.url)) {
       $("loginView").classList.add("hidden");
       $("setupView").classList.remove("hidden");
       return false;
     }
-    firebase.initializeApp(config, { databaseURL: RTDB_URL });
-    auth = firebase.auth();
-    db = firebase.database();
+    if (!window.supabase || !window.supabase.createClient) {
+      $("setupView").classList.remove("hidden");
+      $("setupMsg").textContent = "تعذّر تحميل مكتبة Supabase — تحقق من الاتصال بالإنترنت.";
+      return false;
+    }
+    sb = window.supabase.createClient(cfg.url, cfg.anonKey);
+    bindAuth();
+    return true;
+  }
 
-    sa = loadStoredServiceAccount();
-    $("saStatus").textContent = sa
-      ? "✔ مفتاح FCM v1 محفوظ في المتصفح فقط (" + sa.project_id + ")"
-      : "⚠ لم يُرفع مفتاح FCM v1 بعد — زر «إرسال» لن يعمل بدونه (الإرسال الفوري عبر الرابط يعمل دائماً).";
-
-    auth.onAuthStateChanged((user) => {
+  function bindAuth() {
+    sb.auth.onAuthStateChange((_event, session) => {
+      const user = session && session.user;
       if (user) {
         $("loginView").classList.add("hidden");
         $("setupView").classList.add("hidden");
@@ -186,7 +85,9 @@
         $("logoutBtn").classList.add("hidden");
       }
     });
-    return true;
+    sb.auth.getSession().then(({ data }) => {
+      if (!data || !data.session) return;
+    });
   }
 
   // -------------------------------------------------------------------- login
@@ -199,36 +100,16 @@
         $("loginError").textContent = "أدخل البريد وكلمة المرور";
         return;
       }
-      try {
-        await auth.signInWithEmailAndPassword(email, password);
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) {
+        $("loginError").textContent = "فشل الدخول: " + error.message;
+      } else {
         $("password").value = "";
-      } catch (error) {
-        $("loginError").textContent = "فشل الدخول: " + (error && error.message ? error.message : error);
       }
     });
 
-    $("logoutBtn").addEventListener("click", () => auth.signOut());
-
-    $("saFile").addEventListener("change", async (event) => {
-      const file = event.target.files[0];
-      if (!file) return;
-      try {
-        const text = await file.text();
-        storeServiceAccount(JSON.parse(text));
-      } catch (error) {
-        $("saStatus").textContent = "⚠ فشل قراءة الملف: " + error.message;
-      }
-    });
-
-    $("saPasteBtn").addEventListener("click", () => {
-      const text = $("saPaste").value.trim();
-      if (!text) return;
-      try {
-        storeServiceAccount(JSON.parse(text));
-        $("saPaste").value = "";
-      } catch (error) {
-        $("saStatus").textContent = "⚠ المحتوى ليس JSON صالحاً: " + error.message;
-      }
+    $("logoutBtn").addEventListener("click", async () => {
+      await sb.auth.signOut();
     });
   }
 
@@ -253,16 +134,21 @@
         $("audioBlock").classList.toggle("hidden", selected !== "audio");
       });
     });
-
     $("sendBtn").addEventListener("click", sendNotification);
     $("sendLocalBtn").addEventListener("click", sendViaDeepLink);
   }
 
+  /** Backend-free, instant delivery to the admin's own phone. */
   function buildDeepLink(type, title, body, audioUrl) {
     const reminder = {
       id: "rem_" + Date.now(),
-      title, body, reminderKind: type, persistenceMode: "pinned",
-      deliveryMode: "now", scheduledTimeHHmm: "08:00", isActive: true,
+      title,
+      body,
+      reminderKind: type,
+      persistenceMode: "pinned",
+      deliveryMode: "now",
+      scheduledTimeHHmm: "08:00",
+      isActive: true,
       audioUrl: audioUrl || ""
     };
     const json = JSON.stringify({ reminders: [reminder] });
@@ -277,10 +163,9 @@
     const body = $("pushBody").value.trim();
     const directUrl = $("audioUrl").value.trim();
     if (!title) { toast("اكتب عنوان الإشعار", true); return; }
-    const link = buildDeepLink(type, title, body, directUrl);
     pushLocalHistory({ type, title, body, audioUrl: directUrl, sentAt: Date.now(), recipients: 1, local: true });
-    window.location.href = link;
-    toast("تم فتح التطبيق — إن لم يعمل الرابط على كمبيوتر، انسخه وافتحه على الهاتف");
+    window.location.href = buildDeepLink(type, title, body, directUrl);
+    toast("تم فتح التطبيق — إن لم يعمل الرابط على الكمبيوتر، انسخه وافتحه على الهاتف");
     renderHistory(readLocal(LOCAL_HISTORY));
   }
 
@@ -291,38 +176,6 @@
     const res = await fetch(CATBOX_URL, { method: "POST", body: fd });
     if (!res.ok) throw new Error("رفع الملف فشل HTTP " + res.status);
     return (await res.text()).trim();
-  }
-
-  async function sendOne(target, dataFields) {
-    const url = FCM_SEND_URL;
-    let token_res;
-    try {
-      token_res = await fetchAccessToken();
-    } catch (err) {
-      throw new Error("تعذّر استخراج توكن OAuth2: " + err.message);
-    }
-    const message = { data: dataFields };
-    if (target && target.topic) message.topic = target.topic;
-    else message.token = target && target.token ? target.token : "";
-    const body = { message };
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + token_res,
-        "Content-Type": "application/json; charset=utf-8"
-      },
-      body: JSON.stringify(body)
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      // Token expired mid-flight → retry once.
-      if (res.status === 401) {
-        accessToken = null;
-        return sendOne(target, dataFields);
-      }
-      throw new Error("FCM v1 HTTP " + res.status + ": " + text.slice(0, 200));
-    }
-    return res.json();
   }
 
   async function sendNotification() {
@@ -338,14 +191,11 @@
       toast("اختر ملف صوت أو ضع رابطاً مباشراً", true);
       return;
     }
-    if (!sa) {
-      toast("ارفع مفتاح FCM v1 (تفاصيل أسفل زر الدخول) أولاً.", true);
-      return;
-    }
 
     const button = $("sendBtn");
     button.disabled = true;
     $("sendStatus").textContent = "جارٍ الإرسال…";
+    $("sendHint").textContent = "";
 
     try {
       let audioUrl = directUrl;
@@ -354,63 +204,37 @@
         audioUrl = await uploadAudio(file);
       }
 
-      const dataFields = {
-        type, title, body, audioUrl: audioUrl || "",
-        reminderId: "rem_" + Date.now()
+      const recipients = (target === "all")
+        ? devices.length
+        : devices.filter((d) => d.id === target).length;
+
+      const row = {
+        type,
+        title,
+        body,
+        audio_url: audioUrl || null,
+        target: target === "all" ? null : target,
+        recipients,
+        sent_by: (sb.auth.getUser && (await sb.auth.getUser()).data?.user?.email) || "admin"
       };
 
-      let targets = devices;
-      if (target !== "all") targets = devices.filter((d) => d.token === target);
-      // Always include subscribtion to topic "all" so devices not in /devices
-      // (e.g. older installs) still receive a broadcast.
-      const fallbackBroadcast = target === "all";
+      const { data, error } = await sb.from("notifications").insert(row).select().single();
+      if (error) throw new Error(error.message);
 
-      let successCount = 0;
-      let lastError = null;
-      for (const device of targets) {
-        if (!device.token) continue;
-        try {
-          await sendOne({ token: device.token }, dataFields);
-          successCount++;
-        } catch (e) {
-          lastError = e;
-          console.warn("FCM send failed for", device.id, e.message);
-        }
-      }
-      // Broadcast to the shared topic so devices that are not in /devices
-      // (or were captured after the snapshot) also receive the push.
-      if (fallbackBroadcast) {
-        try {
-          await sendOne({ topic: "all" }, dataFields);
-          successCount++;
-        } catch (e) {
-          lastError = e;
-          console.warn("FCM topic broadcast failed", e.message);
-        }
-      }
-
+      // Realtime delivers the INSERT to every connected app instantly.
       $("sendStatus").textContent =
-        "تم الإرسال إلى " + successCount + " من " + targets.length + " جهاز." +
-        (lastError ? " آخر خطأ: " + lastError.message : "");
-      toast(successCount > 0 ? "تم إرسال الإشعار" : "لم يصل الإشعار لأحد — راجع الـconsole", successCount > 0);
-
-      const notifRef = db.ref("notifications").push();
-      await notifRef.set({
-        type, title, body,
-        audioUrl: audioUrl || "",
-        sentAt: firebase.database.ServerValue.TIMESTAMP,
-        sentBy: auth.currentUser && auth.currentUser.email,
-        recipients: successCount,
-      });
-
-      pushLocalHistory({ type, title, body, audioUrl: audioUrl || "", sentAt: Date.now(), recipients: successCount });
+        "✅ تم الإرسال — ستصلك على " + (recipients || "كل") + " جهاز متصل فوراً." +
+        " (الأجهزة غير المتصلة ستستلم عند فتحها)";
+      toast("تم إرسال الإشعار بنجاح");
+      pushLocalHistory({ type, title, body, audioUrl: audioUrl || "", sentAt: Date.now(), recipients });
       $("pushBody").value = "";
       $("audioFile").value = "";
       renderHistory(readLocal(LOCAL_HISTORY));
       loadHistory();
     } catch (error) {
       $("sendStatus").textContent = "";
-      toast("فشل الإرسال: " + (error.message || error), true);
+      $("sendHint").textContent = "فشل الإرسال: " + (error.message || error);
+      toast("فشل الإرسال", true);
     } finally {
       button.disabled = false;
     }
@@ -418,24 +242,30 @@
 
   // ------------------------------------------------------------------ devices
   async function loadDevices() {
-    if (!db) return;
-    try {
-      const snapshot = await db.ref("devices").orderByChild("lastSeenAt").limitToLast(500).once("value");
-      const items = [];
-      snapshot.forEach((child) => items.push({ id: child.key, ...child.val() }));
-      items.sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0));
-      devices = items;
-      writeLocal(almuezzinBackup(), items);
+    if (!sb) return;
+    const { data, error } = await sb
+      .from("devices")
+      .select("*")
+      .order("last_seen_at", { ascending: false })
+      .limit(500);
+    if (error) {
+      devices = readLocal("almuezzin_dashboard_devices");
       renderDevices();
-      $("backendHint").textContent = "";
-    } catch (error) {
-      devices = readLocal(almuezzinBackup());
-      renderDevices();
-      $("backendHint").textContent = "تعذّر قراءة RTDB: " + error.message;
+      $("sendHint").textContent = "تعذّر قراءة الأجهزة: " + error.message;
+      return;
     }
+    devices = (data || []).map((d) => ({
+      id: d.id,
+      token: d.id,
+      appVersion: d.app_version,
+      platform: d.platform,
+      model: d.model,
+      lastSeenAt: d.last_seen_at
+    }));
+    writeLocal("almuezzin_dashboard_devices", devices);
+    renderDevices();
+    $("sendHint").textContent = "";
   }
-
-  function almuezzinBackup() { return "almuezzin_dashboard_devices"; }
 
   function renderDevices() {
     const rows = $("deviceRows");
@@ -444,7 +274,7 @@
     devices.forEach((device) => {
       const tr = document.createElement("tr");
       const id = document.createElement("td");
-      id.textContent = (device.id || "").slice(0, 18) + "…";
+      id.textContent = (device.id || "").slice(0, 22) + "…";
       const version = document.createElement("td");
       version.textContent = device.appVersion || "—";
       const platform = document.createElement("td");
@@ -460,9 +290,8 @@
     const select = $("target");
     select.innerHTML = '<option value="all">كل الأجهزة المسجّلة</option>';
     devices.forEach((device) => {
-      if (!device.token) return;
       const option = document.createElement("option");
-      option.value = device.token;
+      option.value = device.id;
       option.textContent = "جهاز " + (device.id || "").slice(0, 12) + "… (" + (device.appVersion || "?") + ")";
       select.appendChild(option);
     });
@@ -470,16 +299,24 @@
 
   // ------------------------------------------------------------------ history
   async function loadHistory() {
-    if (!db) return;
-    try {
-      const snap = await db.ref("notifications").orderByChild("sentAt").limitToLast(50).once("value");
-      const items = [];
-      snap.forEach((c) => items.push({ id: c.key, ...c.val() }));
-      items.sort((a, b) => (b.sentAt || 0) - (a.sentAt || 0));
-      renderHistory(items);
-    } catch (error) {
+    if (!sb) return;
+    const { data, error } = await sb
+      .from("notifications")
+      .select("*")
+      .order("sent_at", { ascending: false })
+      .limit(50);
+    if (error) {
       renderHistory(readLocal(LOCAL_HISTORY));
+      return;
     }
+    renderHistory((data || []).map((n) => ({
+      type: n.type,
+      title: n.title,
+      body: n.body,
+      audioUrl: n.audio_url,
+      sentAt: n.sent_at,
+      recipients: n.recipients
+    })));
   }
 
   function renderHistory(items) {
@@ -494,8 +331,8 @@
       wrapper.className = "history-item";
       const header = document.createElement("header");
       header.innerHTML =
-        "<span>" + (item.type === "audio" ? "🔊 صوتي" : "💬 نصي") + " · " +
-        formatDate(item.sentAt) + (item.local ? " · محلي" : "") + "</span>" +
+        "<span>" + (item.type === "audio" ? "🔊 صوتي" : "💬 نصي") + " · " + formatDate(item.sentAt) +
+        (item.local ? " · محلي" : "") + "</span>" +
         "<span>أُرسل إلى " + (item.recipients || 0) + " جهاز</span>";
       const title = document.createElement("h3");
       title.textContent = item.title || "";
@@ -518,6 +355,6 @@
     bindTabs();
     bindLogin();
     bindComposer();
-    initFirebase();
+    initSupabase();
   });
 })();
