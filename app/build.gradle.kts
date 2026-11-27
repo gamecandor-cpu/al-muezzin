@@ -62,6 +62,11 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  lint {
+    // registerForActivityResult is used from an Activity, not a Fragment; the
+    // fragment-version check is a false positive here.
+    disable += "InvalidFragmentVersionForActivityResult"
+  }
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true

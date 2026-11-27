@@ -10,6 +10,9 @@ class BootCompletedReceiver : BroadcastReceiver() {
         if (action in HANDLED_ACTIONS) {
             PrayerNotificationReceiver.ensureAllChannels(context)
             PrayerNotificationScheduler(context).rescheduleFromCache()
+            // Restart the live notification connection so pushes keep arriving
+            // after a reboot.
+            com.example.push.PushListenerService.start(context)
         }
     }
 
