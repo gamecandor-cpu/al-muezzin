@@ -291,8 +291,27 @@ object SupabasePushClient {
             try {
                 val prefs = prefs(context)
                 val lastId = prefs.getLong(KEY_LAST_NOTIF_ID, 0L)
-                val filter = if (lastId > 0) "?id=gt.$lastId&order=id.desc&limit=50"
-                             else "?order=id.desc&limit=10"
+
+                // Fresh install / first run: do NOT replay old notifications. Mark
+                // everything already in the table as seen and show nothing — only
+                // notifications sent from now on should reach the user.
+                if (lastId == 0L) {
+                    val peek = Request.Builder()
+                        .url("${baseUrl()}/rest/v1/notifications?select=id&order=id.desc&limit=1")
+                        .addHeader("apikey", anonKey())
+                        .addHeader("Authorization", "Bearer ${anonKey()}")
+                        .build()
+                    client.newCall(peek).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val arr = JSONArray(resp.body?.string() ?: "[]")
+                            val maxId = arr.optJSONObject(0)?.optLong("id", 0L) ?: 0L
+                            if (maxId > 0) prefs.edit().putLong(KEY_LAST_NOTIF_ID, maxId).apply()
+                        }
+                    }
+                    return@launch // never replay history on a new install
+                }
+
+                val filter = "?id=gt.$lastId&order=id.desc&limit=50"
                 val req = Request.Builder()
                     .url("${baseUrl()}/rest/v1/notifications$filter")
                     .addHeader("apikey", anonKey())
